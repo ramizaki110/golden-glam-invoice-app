@@ -5,7 +5,6 @@ import re
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
-from openpyxl import load_workbook
 
 from golden_glam_invoice_generator import draw_invoice
 
@@ -27,10 +26,19 @@ def parse_summary(summary_text: str) -> dict:
         raise ValueError("Could not read invoice number/date from summary.")
     number, date, ref = m.groups()
 
-    m = re.search(r"client:([^|]+)\|no:([^|]+)\|ph:(.+)", summary_text)
-    if not m:
+    client_name = ""
+    client_no = ""
+    client_phone = ""
+    client_email = ""
+
+    m = re.search(r"client:(.*?)\|no:(.*?)\|ph:(.*?)(?:\|email:(.*))?$", summary_text, re.M)
+    if m:
+        client_name = m.group(1).strip()
+        client_no = m.group(2).strip()
+        client_phone = m.group(3).strip()
+        client_email = (m.group(4) or "").strip()
+    else:
         raise ValueError("Could not read client section from summary.")
-    client_name, client_no, client_phone = [x.strip() for x in m.groups()]
 
     m = re.search(r"addr:(.+)", summary_text)
     addr_line = m.group(1).strip() if m else ""
@@ -66,12 +74,16 @@ def parse_summary(summary_text: str) -> dict:
     parts = summary_text.split("ITEMS", 1)
     if len(parts) < 2:
         raise ValueError("Could not find invoice items in summary.")
+
     items_section = parts[1]
 
     if "INTERNAL" in items_section:
         items_part, internal_part = items_section.split("INTERNAL", 1)
     else:
         items_part, internal_part = items_section, ""
+
+    # Remove the "fmt:" helper line so it doesn't get parsed as an item
+    items_part = re.sub(r"^\s*\(fmt:.*?\)\s*\n", "", items_part, flags=re.S)
 
     item_pattern = re.compile(
         r"\[([^\]]+)\](.*?)\|([^|\n]+)\|qty:(\d+)\|\$([0-9.,]+)(?:\|disc:([0-9.]+)%?)?\|tot:\$([0-9.,]+)\|del:(.*?)(?:\n\s*Photo-base64:\s*(data:image\/[a-zA-Z]+;base64,[A-Za-z0-9+/=\s]+))?(?=\n\[|\n[^\n|]*Delivery(?: \([^)]+\))?\||\npay:|\nnotes:|\nINTERNAL|\Z)",
@@ -100,18 +112,39 @@ def parse_summary(summary_text: str) -> dict:
         line = line.strip()
         if not line.startswith("["):
             continue
-        m = re.match(
-            r'\[([^\]]+)\].*?(?:vendor_no:\s*"([^"]*)")?.*?(?:raw_cost:\s*([0-9.]+))?.*?(?:cost_disc:\s*([0-9.]+)%)?.*?(?:cost:\s*([0-9.]+))?',
-            line
-        )
+
+        item_no_match = re.match(r"\[([^\]]+)\]", line)
+        if not item_no_match:
+            continue
+        item_no = item_no_match.group(1)
+
+        vendor_no = ""
+        raw_cost = 0.0
+        cost_disc = 0.0
+        cost = 0.0
+
+        m = re.search(r'vendor_no:\s*"([^"]*)"', line)
         if m:
-            item_no, vendor_no, raw_cost, cost_disc, cost = m.groups()
-            internal_map[item_no] = {
-                "vendor_no": vendor_no or "",
-                "raw_cost": float(raw_cost) if raw_cost else 0.0,
-                "cost_disc": float(cost_disc) if cost_disc else 0.0,
-                "cost": float(cost) if cost else 0.0,
-            }
+            vendor_no = m.group(1)
+
+        m = re.search(r"raw_cost:\s*([0-9.]+)", line)
+        if m:
+            raw_cost = float(m.group(1))
+
+        m = re.search(r"cost_disc:\s*([0-9.]+)%", line)
+        if m:
+            cost_disc = float(m.group(1))
+
+        m = re.search(r"cost:\s*([0-9.]+)", line)
+        if m:
+            cost = float(m.group(1))
+
+        internal_map[item_no] = {
+            "vendor_no": vendor_no,
+            "raw_cost": raw_cost,
+            "cost_disc": cost_disc,
+            "cost": cost,
+        }
 
     for item in items:
         item.update(internal_map.get(item["no"], {}))
@@ -123,7 +156,7 @@ def parse_summary(summary_text: str) -> dict:
         "client_name": client_name,
         "client_no": client_no,
         "client_phone": client_phone,
-        "client_email": "",
+        "client_email": client_email,
         "client_address": client_address,
         "delivery_type": delivery_type,
         "delivery_charge": delivery_charge,
@@ -135,31 +168,12 @@ def parse_summary(summary_text: str) -> dict:
     }
 
 
-def reformat_excel_no_decimals(xlsx_path: Path) -> None:
-    if not xlsx_path.exists():
-        return
-
-    wb = load_workbook(xlsx_path)
-    for ws in wb.worksheets:
-        for row in ws.iter_rows():
-            for cell in row:
-                if isinstance(cell.value, (int, float)):
-                    cell.number_format = "$#,##0"
-    wb.save(xlsx_path)
-
-
 def generate_from_summary(summary_text: str) -> tuple[Path, Path]:
     invoice = parse_summary(summary_text)
     safe_name = invoice.pop("base_filename")
     pdf_path = OUTPUT_DIR / f"{safe_name}.pdf"
-
-    draw_invoice(invoice, str(pdf_path))
-
-    xlsx_path = pdf_path.with_name(pdf_path.stem + "_INTERNAL.xlsx")
-    if xlsx_path.exists():
-        reformat_excel_no_decimals(xlsx_path)
-
-    return pdf_path, xlsx_path
+    xlsx_path = draw_invoice(invoice, str(pdf_path))
+    return pdf_path, Path(xlsx_path)
 
 
 @app.get("/")
