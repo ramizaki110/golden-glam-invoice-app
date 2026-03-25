@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: golden-glam-invoice-app
+    env: python
+    buildCommand: pip install -r requirements_hosted.txt
+    startCommand: gunicorn -b 0.0.0.0:$PORT golden_glam_invoice_webapp:app
