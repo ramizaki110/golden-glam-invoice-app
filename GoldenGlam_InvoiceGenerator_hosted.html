@@ -767,7 +767,7 @@ pay:${payText}|ref:${invNum}|client:${cNo}${notes?'\nnotes:'+notes:''}`;
 }
 
 async function generateFiles(){
-  buildSummary();
+  await buildSummary();
 
   const summaryEl = document.getElementById('summary-out');
   const summary = (summaryEl.textContent || '').trim();
