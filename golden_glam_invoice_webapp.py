@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
+from openpyxl import load_workbook
 
 from golden_glam_invoice_generator import draw_invoice
 
@@ -32,13 +33,12 @@ def parse_summary(summary_text: str) -> dict:
     client_email = ""
 
     m = re.search(r"client:(.*?)\|no:(.*?)\|ph:(.*?)(?:\|email:(.*))?$", summary_text, re.M)
-    if m:
-        client_name = m.group(1).strip()
-        client_no = m.group(2).strip()
-        client_phone = m.group(3).strip()
-        client_email = (m.group(4) or "").strip()
-    else:
+    if not m:
         raise ValueError("Could not read client section from summary.")
+    client_name = m.group(1).strip()
+    client_no = m.group(2).strip()
+    client_phone = m.group(3).strip()
+    client_email = (m.group(4) or "").strip()
 
     m = re.search(r"addr:(.+)", summary_text)
     addr_line = m.group(1).strip() if m else ""
@@ -82,8 +82,15 @@ def parse_summary(summary_text: str) -> dict:
     else:
         items_part, internal_part = items_section, ""
 
-    # Remove the "fmt:" helper line so it doesn't get parsed as an item
-    items_part = re.sub(r"^\s*\(fmt:.*?\)\s*\n", "", items_part, flags=re.S)
+    # Remove the helper line:
+    # (fmt: [itemNo]desc|type|qty:N|$unitPrice|disc:N%|tot:$N|del:text|Photo-base64:...)
+    item_lines = items_part.splitlines()
+    cleaned_lines = []
+    for line in item_lines:
+        if line.strip().startswith("(fmt:"):
+            continue
+        cleaned_lines.append(line)
+    items_part = "\n".join(cleaned_lines).strip()
 
     item_pattern = re.compile(
         r"\[([^\]]+)\](.*?)\|([^|\n]+)\|qty:(\d+)\|\$([0-9.,]+)(?:\|disc:([0-9.]+)%?)?\|tot:\$([0-9.,]+)\|del:(.*?)(?:\n\s*Photo-base64:\s*(data:image\/[a-zA-Z]+;base64,[A-Za-z0-9+/=\s]+))?(?=\n\[|\n[^\n|]*Delivery(?: \([^)]+\))?\||\npay:|\nnotes:|\nINTERNAL|\Z)",
@@ -168,12 +175,28 @@ def parse_summary(summary_text: str) -> dict:
     }
 
 
+def reformat_excel_no_decimals(xlsx_path: Path) -> None:
+    if not xlsx_path.exists():
+        return
+
+    wb = load_workbook(xlsx_path)
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                if isinstance(cell.value, (int, float)):
+                    cell.number_format = "$#,##0"
+    wb.save(xlsx_path)
+
+
 def generate_from_summary(summary_text: str) -> tuple[Path, Path]:
     invoice = parse_summary(summary_text)
     safe_name = invoice.pop("base_filename")
     pdf_path = OUTPUT_DIR / f"{safe_name}.pdf"
     xlsx_path = draw_invoice(invoice, str(pdf_path))
-    return pdf_path, Path(xlsx_path)
+    xlsx_path = Path(xlsx_path)
+    if xlsx_path.exists():
+        reformat_excel_no_decimals(xlsx_path)
+    return pdf_path, xlsx_path
 
 
 @app.get("/")
