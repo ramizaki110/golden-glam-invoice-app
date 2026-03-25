@@ -767,25 +767,63 @@ pay:${payText}|ref:${invNum}|client:${cNo}${notes?'\nnotes:'+notes:''}`;
 }
 
 async function generateFiles(){
-  const status=document.getElementById('export-status');
-  await buildSummary();
-  const summary=document.getElementById('summary-out').textContent.trim();
-  if(!summary || summary.startsWith('←')){ alert('Please build the summary first.'); return; }
-  status.innerHTML='Generating files…';
-  try{
-    const res=await fetch('/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary})});
-    const data=await res.json();
-    if(!res.ok || !data.ok) throw new Error(data.error || 'Generation failed');
-    const a1=document.createElement('a');
-    a1.href=data.pdf_url; a1.download=data.pdf_name||''; document.body.appendChild(a1); a1.click(); a1.remove();
-    setTimeout(()=>{ const a2=document.createElement('a'); a2.href=data.xlsx_url; a2.download=data.xlsx_name||''; document.body.appendChild(a2); a2.click(); a2.remove(); }, 350);
-    status.innerHTML=`Done.<br><code style="background:#f0ede8;padding:1px 5px;border-radius:3px">${data.pdf_name}</code><br><code style="background:#f0ede8;padding:1px 5px;border-radius:3px">${data.xlsx_name}</code>`;
-  }catch(err){
+  buildSummary();
+
+  const summaryEl = document.getElementById('summary-out');
+  const summary = (summaryEl.textContent || '').trim();
+
+  if (!summary || summary.startsWith('←')) {
+    alert('Please build the summary first.');
+    return;
+  }
+
+  const btn = document.querySelector('button[onclick="generateFiles()"]');
+  const oldText = btn ? btn.textContent : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Generating...';
+  }
+
+  try {
+    const res = await fetch('/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ summary })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || 'Generation failed');
+    }
+
+    const a1 = document.createElement('a');
+    a1.href = data.pdf_url;
+    a1.download = data.pdf_name || '';
+    document.body.appendChild(a1);
+    a1.click();
+    a1.remove();
+
+    setTimeout(() => {
+      const a2 = document.createElement('a');
+      a2.href = data.xlsx_url;
+      a2.download = data.xlsx_name || '';
+      document.body.appendChild(a2);
+      a2.click();
+      a2.remove();
+    }, 300);
+
+  } catch (err) {
     console.error(err);
-    status.innerHTML=`<span style="color:#c0392b">Error:</span> ${err.message}`;
     alert('Generation failed: ' + err.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = oldText || 'Generate PDF + Excel';
+    }
   }
 }
+
 
 
 function copySummary(){
