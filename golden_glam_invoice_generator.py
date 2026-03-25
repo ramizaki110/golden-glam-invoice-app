@@ -29,16 +29,10 @@ BLACK = colors.HexColor("#231f1e")
 DARK = colors.HexColor("#4a4745")
 MID = colors.HexColor("#8c8a87")
 BORDER = colors.HexColor("#e0dedd")
-GOLD = colors.HexColor("#b8963e")
-BG = colors.HexColor("#faf9f8")
 
 
 def usd(v: float) -> str:
     return f"${v:,.0f}"
-
-
-def usd2(v: float) -> str:
-    return f"${v:,.2f}"
 
 
 def _decode_image(image_value: str) -> str | None:
@@ -163,7 +157,7 @@ def _write_internal_excel(inv: dict, output_path: str):
             disc,
             line_total,
             raw_cost,
-            cost_disc,
+            cost_disc / 100 if cost_disc else 0,
             unit_cost,
             ext_cost,
             profit,
@@ -173,8 +167,7 @@ def _write_internal_excel(inv: dict, output_path: str):
         ])
 
     delivery_charge = inv.get("delivery_charge", 0) or 0
-    tax_rate = inv.get("tax_rate", 0) or 0
-    tax_amt = (subtotal + delivery_charge) * tax_rate
+    tax_amt = (subtotal + delivery_charge) * (inv.get("tax_rate", 0) or 0)
     total = subtotal + delivery_charge + tax_amt
 
     row = ws.max_row + 2
@@ -205,46 +198,13 @@ def _write_internal_excel(inv: dict, output_path: str):
     for row_idx in range(2, ws.max_row + 1):
         for col_idx in [6, 8, 9, 11, 12, 13]:
             ws.cell(row_idx, col_idx).number_format = "$#,##0"
-        for col_idx in [7, 10]:
+        for col_idx in [7, 10, 14]:
             ws.cell(row_idx, col_idx).number_format = "0.0%"
-        ws.cell(row_idx, 14).number_format = "0.0%"
 
     _autosize(ws, {
         1: 14, 2: 16, 3: 42, 4: 8, 5: 10, 6: 12, 7: 11, 8: 12,
         9: 12, 10: 11, 11: 12, 12: 14, 13: 12, 14: 10, 15: 22, 16: 14
     })
-
-    ws2 = wb.create_sheet("Vendor Numbers")
-    hdr2 = ["Item No", "Description", "Vendor No", "Raw Cost", "Cost Disc %", "Unit Cost"]
-    ws2.append(hdr2)
-
-    for c in range(1, len(hdr2) + 1):
-        cell = ws2.cell(1, c)
-        cell.fill = hdr_fill
-        cell.font = hdr_font
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-        cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
-
-    for item in inv["items"]:
-        ws2.append([
-            item.get("no", ""),
-            item.get("description", ""),
-            item.get("vendor_no", ""),
-            item.get("raw_cost", 0) or 0,
-            (item.get("cost_disc", 0) or 0) / 100,
-            item.get("cost", 0) or 0,
-        ])
-
-    for r in ws2.iter_rows():
-        for cell in r:
-            cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
-
-    for row_idx in range(2, ws2.max_row + 1):
-        ws2.cell(row_idx, 4).number_format = "$#,##0"
-        ws2.cell(row_idx, 5).number_format = "0.0%"
-        ws2.cell(row_idx, 6).number_format = "$#,##0"
-
-    _autosize(ws2, {1: 14, 2: 42, 3: 18, 4: 12, 5: 12, 6: 12})
 
     xlsx_path = Path(output_path).with_name(Path(output_path).stem + "_INTERNAL.xlsx")
     wb.save(xlsx_path)
@@ -257,48 +217,39 @@ def draw_invoice(inv, output_path):
         pagesize=letter,
         leftMargin=0.6 * inch,
         rightMargin=0.6 * inch,
-        topMargin=0.55 * inch,
+        topMargin=0.45 * inch,
         bottomMargin=0.9 * inch,
     )
 
     elements = []
     temp_images = []
 
-    title_style = ParagraphStyle(
-        "gg_title",
-        parent=styles["Title"],
-        fontName="Helvetica-Bold",
-        fontSize=20,
-        textColor=BLACK,
-        spaceAfter=8,
-        alignment=1,
-    )
-    small_label = ParagraphStyle(
-        "gg_label",
+    label_style = ParagraphStyle(
+        "label_style",
         parent=styles["Normal"],
         fontName="Helvetica",
         fontSize=8,
         textColor=DARK,
         leading=10,
     )
-    small_val = ParagraphStyle(
-        "gg_val",
+    value_style = ParagraphStyle(
+        "value_style",
         parent=styles["Normal"],
         fontName="Helvetica-Bold",
         fontSize=8,
         textColor=BLACK,
         leading=10,
     )
-    normal = ParagraphStyle(
-        "gg_normal",
+    cell_style = ParagraphStyle(
+        "cell_style",
         parent=styles["Normal"],
         fontName="Helvetica",
-        fontSize=8.5,
+        fontSize=8,
         textColor=BLACK,
-        leading=11,
+        leading=10,
     )
     note_style = ParagraphStyle(
-        "gg_note",
+        "note_style",
         parent=styles["Normal"],
         fontName="Helvetica",
         fontSize=7.5,
@@ -306,71 +257,64 @@ def draw_invoice(inv, output_path):
         leading=10,
     )
 
-    # Header
-    header_parts = []
+    # (1) centered logo
     if LOGO_PATH.exists():
-        header_parts.append(Image(str(LOGO_PATH), width=1.9 * inch, height=0.8 * inch))
-    else:
-        header_parts.append(Paragraph("Golden Glam", title_style))
+        logo = Image(str(LOGO_PATH), width=1.35 * inch, height=0.95 * inch)
+        logo.hAlign = "CENTER"
+        elements.append(logo)
+        elements.append(Spacer(1, 10))
 
-    header_parts.append(Paragraph("Invoice", title_style))
-    header_tbl = Table([[header_parts[0], header_parts[1]]], colWidths=[2.3 * inch, 4.5 * inch])
-    header_tbl.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("ALIGN", (1, 0), (1, 0), "CENTER"),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-    ]))
-    elements.append(header_tbl)
-    elements.append(Spacer(1, 8))
-
-    # Client + Meta
-    client_lines = [
-        [Paragraph("Tel. | Mob.:", small_label), Paragraph(inv.get("client_phone", ""), small_val)],
-        [Paragraph("Name:", small_label), Paragraph(inv.get("client_name", ""), small_val)],
+    # (2) client block under logo, left aligned
+    client_rows = [
+        [Paragraph("Tel. | Mob.:", label_style), Paragraph(inv.get("client_phone", ""), value_style)],
+        [Paragraph("Name:", label_style), Paragraph(inv.get("client_name", ""), value_style)],
     ]
-    if inv.get("client_email"):
-        client_lines.append([Paragraph("Email:", small_label), Paragraph(inv.get("client_email", ""), small_val)])
 
-    addr = inv.get("client_address", []) or []
-    for idx, line in enumerate(addr):
-        client_lines.append([
-            Paragraph("Del. Address:" if idx == 0 else "", small_label),
-            Paragraph(line, small_val),
+    if inv.get("client_email"):
+        client_rows.append([Paragraph("Email:", label_style), Paragraph(inv.get("client_email", ""), value_style)])
+
+    for idx, line in enumerate(inv.get("client_address", []) or []):
+        client_rows.append([
+            Paragraph("Del. Address:" if idx == 0 else "", label_style),
+            Paragraph(line, value_style),
         ])
 
-    client_tbl = Table(client_lines, colWidths=[0.95 * inch, 2.6 * inch])
+    client_tbl = Table(client_rows, colWidths=[0.95 * inch, 3.3 * inch])
     client_tbl.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
         ("TOPPADDING", (0, 0), (-1, -1), 1),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
     ]))
+    elements.append(client_tbl)
+    elements.append(Spacer(1, 12))
+
+    # (3) invoice meta starts from left-most beneath header/client
+    title_tbl = Table([[Paragraph("<b>Invoice</b>", styles["Title"])]], colWidths=[6.8 * inch])
+    title_tbl.setStyle(TableStyle([
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    elements.append(title_tbl)
 
     meta_data = [
         ["Invoice Date:", "Invoice", "Client No:", "Your Reference:"],
         [inv.get("date", ""), inv.get("number", ""), str(inv.get("client_no", "")), inv.get("reference", "")],
     ]
-    meta_tbl = Table(meta_data, colWidths=[1.0 * inch, 1.15 * inch, 0.95 * inch, 1.65 * inch])
+    meta_tbl = Table(meta_data, colWidths=[1.25 * inch, 1.15 * inch, 1.10 * inch, 3.30 * inch])
     meta_tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), BLACK),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, 0), 8),
-        ("FONTSIZE", (0, 1), (-1, 1), 8.5),
         ("FONTNAME", (0, 1), (-1, 1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 1), (-1, 1), 8.5),
         ("GRID", (0, 0), (-1, -1), 0.3, BORDER),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
     ]))
-
-    top_tbl = Table([[client_tbl, meta_tbl]], colWidths=[3.7 * inch, 3.2 * inch])
-    top_tbl.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-    ]))
-    elements.append(top_tbl)
+    elements.append(meta_tbl)
     elements.append(Spacer(1, 12))
 
     # Items
@@ -388,25 +332,27 @@ def draw_invoice(inv, output_path):
         if img_path:
             temp_images.append(img_path)
             try:
-                photo_cell = Image(img_path, width=0.9 * inch, height=0.7 * inch)
+                img = Image(img_path, width=0.85 * inch, height=0.55 * inch)
+                img.hAlign = "CENTER"
+                photo_cell = img
             except Exception:
                 photo_cell = ""
 
         rows.append([
-            Paragraph(str(item.get("no", "")), normal),
-            Paragraph(item.get("description", ""), normal),
-            Paragraph(item.get("delivery", ""), normal),
-            Paragraph(item.get("unit", ""), normal),
-            Paragraph(str(qty), normal),
-            Paragraph(usd(unit_price), normal),
-            Paragraph(f"{disc*100:.0f}%" if disc else "", normal),
-            Paragraph(usd(line_total), normal),
+            Paragraph(str(item.get("no", "")), cell_style),
+            Paragraph(item.get("description", ""), cell_style),
+            Paragraph(item.get("delivery", ""), cell_style),
+            Paragraph(item.get("unit", ""), cell_style),
+            Paragraph(str(qty), cell_style),
+            Paragraph(usd(unit_price), cell_style),
+            Paragraph(f"{disc * 100:.0f}%" if disc else "", cell_style),
+            Paragraph(usd(line_total), cell_style),
             photo_cell,
         ])
 
     item_tbl = Table(
         rows,
-        colWidths=[0.8 * inch, 2.15 * inch, 1.0 * inch, 0.65 * inch, 0.4 * inch, 0.8 * inch, 0.5 * inch, 0.7 * inch, 1.0 * inch]
+        colWidths=[0.70 * inch, 2.15 * inch, 0.90 * inch, 0.55 * inch, 0.35 * inch, 0.70 * inch, 0.45 * inch, 0.60 * inch, 0.90 * inch]
     )
     item_tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), BLACK),
@@ -415,54 +361,49 @@ def draw_invoice(inv, output_path):
         ("FONTSIZE", (0, 0), (-1, 0), 7.5),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("GRID", (0, 0), (-1, -1), 0.3, BORDER),
-        ("TOPPADDING", (0, 1), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 1), (-1, -1), 4),
+        ("TOPPADDING", (0, 1), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 5),
         ("LEFTPADDING", (0, 0), (-1, -1), 4),
         ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ("ALIGN", (3, 1), (7, -1), "CENTER"),
+        ("ALIGN", (3, 1), (8, -1), "CENTER"),
     ]))
     elements.append(item_tbl)
     elements.append(Spacer(1, 10))
 
-    # Totals
     subtotal = sum(i.get("qty", 0) * i.get("unit_price", 0) * (1 - i.get("discount", 0)) for i in inv.get("items", []))
     delivery_charge = inv.get("delivery_charge", 0) or 0
     tax_amt = (subtotal + delivery_charge) * (inv.get("tax_rate", 0) or 0)
     total = subtotal + delivery_charge + tax_amt
 
     if inv.get("delivery_type"):
-        elements.append(Paragraph(f"<b>{inv.get('delivery_type')}</b>", normal))
+        elements.append(Paragraph(f"<b>{inv.get('delivery_type')}</b>", cell_style))
         elements.append(Spacer(1, 4))
 
+    # (7) add line above subtotal
     totals_tbl = Table([
         ["SubTotal", usd(subtotal)],
         ["Delivery Charge", usd(delivery_charge)],
         ["Sales Tax", usd(tax_amt)],
         ["Total", usd(total)],
-    ], colWidths=[1.7 * inch, 1.1 * inch])
+    ], colWidths=[1.7 * inch, 1.0 * inch])
     totals_tbl.setStyle(TableStyle([
+        ("LINEABOVE", (0, 0), (-1, 0), 0.8, BLACK),
         ("FONTNAME", (0, 0), (-1, -2), "Helvetica"),
         ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, -1), 8.5),
         ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-        ("LINEABOVE", (0, -1), (-1, -1), 0.8, BLACK),
         ("TOPPADDING", (0, 0), (-1, -1), 4),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
 
-    totals_wrap = Table([["", totals_tbl]], colWidths=[4.5 * inch, 2.3 * inch])
+    totals_wrap = Table([["", totals_tbl]], colWidths=[4.5 * inch, 2.2 * inch])
     totals_wrap.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
     ]))
     elements.append(totals_wrap)
     elements.append(Spacer(1, 12))
-
-    # Notes / payment
-    if inv.get("notes"):
-        elements.append(Paragraph(f"<b>Note:</b> {inv.get('notes')}", note_style))
-        elements.append(Spacer(1, 8))
 
     pay_map = {
         "standard": (
@@ -484,8 +425,7 @@ def draw_invoice(inv, output_path):
     ))
     elements.append(Spacer(1, 6))
     elements.append(Paragraph(
-        "All quote(s), (provisional) order(s) (confirmations), sales and deliveries are subject to the Golden Glam Terms of orders and payments, "
-        "the Golden Glam Reseller Terms and the CBM General Sales Terms and Conditions. US law applies.",
+        "All quote(s), (provisional) order(s) (confirmations), sales and deliveries are subject to the Golden Glam Terms of orders and payments, the Golden Glam Reseller Terms and the CBM General Sales Terms and Conditions. US law applies.",
         note_style
     ))
 
