@@ -1,198 +1,81 @@
-from __future__ import annotations
-
-import importlib.util
-import os
-import re
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet
+from openpyxl import Workbook
 from pathlib import Path
 
-from flask import Flask, jsonify, request, send_from_directory
-from openpyxl import load_workbook
-
-BASE_DIR = Path(__file__).resolve().parent
-HTML_FILE = BASE_DIR / "GoldenGlam_InvoiceGenerator_hosted.html"
-OUTPUT_DIR = BASE_DIR / "generated_invoices"
-OUTPUT_DIR.mkdir(exist_ok=True)
-
-spec = importlib.util.spec_from_file_location("gg_gen", BASE_DIR / "golden_glam_invoice_generator.py")
-gg_gen = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(gg_gen)
-
-app = Flask(__name__)
+styles = getSampleStyleSheet()
 
 
-def _clean_currency(x: str) -> float:
-    return float(x.replace(",", "").strip())
+def draw_invoice(inv, output_path):
+    doc = SimpleDocTemplate(output_path, pagesize=letter)
+    elements = []
 
+    # ── HEADER ──
+    elements.append(Paragraph(f"<b>Golden Glam Interiors</b>", styles["Title"]))
+    elements.append(Spacer(1, 12))
 
-def parse_summary(summary_text: str) -> dict:
-    m = re.search(r"GG-INV\|([^|]+)\|([^|]+)\|ref:(.*)", summary_text)
-    if not m:
-        raise ValueError("Could not read invoice number/date from summary.")
-    number, date, ref = m.groups()
+    elements.append(Paragraph(f"<b>Invoice:</b> {inv.get('number')}", styles["Normal"]))
+    elements.append(Paragraph(f"<b>Date:</b> {inv.get('date')}", styles["Normal"]))
+    elements.append(Paragraph(f"<b>Client:</b> {inv.get('client_name')}", styles["Normal"]))
+    elements.append(Spacer(1, 12))
 
-    m = re.search(r"client:([^|]+)\|no:([^|]+)\|ph:(.+)", summary_text)
-    if not m:
-        raise ValueError("Could not read client section from summary.")
-    client_name, client_no, client_phone = [x.strip() for x in m.groups()]
+    # ── ITEMS TABLE ──
+    data = [["Item", "Description", "Qty", "Unit Price", "Total"]]
 
-    m = re.search(r"addr:(.+)", summary_text)
-    addr_line = m.group(1).strip() if m else ""
-    client_address = [p.strip() for p in addr_line.split(",") if p.strip()]
+    subtotal = 0
 
-    m = re.search(r"file:(.+)", summary_text)
-    base_filename = m.group(1).strip() if m else f"GG__{number}_{client_name.upper().replace(' ', '_')}"
+    for item in inv["items"]:
+        total = item["qty"] * item["unit_price"] * (1 - item.get("discount", 0))
+        subtotal += total
 
-    delivery_type = ""
-    delivery_charge = 0.0
-    tax_rate = 0.0
-    m = re.search(
-        r"\n([^\n|]*Delivery(?: \([^)]+\))?)\|sub:\$([0-9.,]+)\|del:\$([0-9.,]+)\|tax\((\d+(?:\.\d+)?)%\):\$([0-9.,]+)\|total:\$([0-9.,]+)",
-        summary_text
-    )
-    if m:
-        delivery_type = m.group(1).strip()
-        delivery_charge = _clean_currency(m.group(3))
-        tax_rate = float(m.group(4)) / 100.0
+        data.append([
+            item.get("no"),
+            item.get("description"),
+            item.get("qty"),
+            f"${item.get('unit_price'):.2f}",
+            f"${total:.2f}",
+        ])
 
-    payment_terms = "standard"
-    low = summary_text.lower()
-    if "pay:paid in advance" in low:
-        payment_terms = "advance"
-    elif "pay:payment in installments" in low or "pay:installments" in low:
-        payment_terms = "installments"
+    table = Table(data)
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.black),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+    ]))
 
-    parts = summary_text.split("ITEMS", 1)
-    if len(parts) < 2:
-        raise ValueError("Could not find invoice items in summary.")
-    items_section = parts[1]
-    if "INTERNAL" in items_section:
-        items_part, internal_part = items_section.split("INTERNAL", 1)
-    else:
-        items_part, internal_part = items_section, ""
+    elements.append(table)
+    elements.append(Spacer(1, 20))
 
-    item_pattern = re.compile(
-        r"\[([^\]]+)\](.*?)\|([^|\n]+)\|qty:(\d+)\|\$([0-9.,]+)(?:\|disc:([0-9.]+)%?)?\|tot:\$([0-9.,]+)\|del:(.*?)(?:\n\s*Photo-base64:\s*(data:image\/[a-zA-Z]+;base64,[A-Za-z0-9+/=\s]+))?(?=\n\[|\n[^\n|]*Delivery(?: \([^)]+\))?\||\npay:|\nINTERNAL|\Z)",
-        re.S,
-    )
+    # ── TOTALS ──
+    delivery = inv.get("delivery_charge", 0)
+    tax = subtotal * inv.get("tax_rate", 0)
+    total = subtotal + delivery + tax
 
-    items = []
-    for g in item_pattern.finditer(items_part):
-        no, desc, unit, qty, unit_price, disc, _total, delivery, photo = g.groups()
-        items.append({
-            "no": no.strip(),
-            "description": " ".join(desc.strip().split()),
-            "delivery": " ".join(delivery.strip().split()),
-            "qty": int(qty),
-            "unit": unit.strip(),
-            "unit_price": _clean_currency(unit_price),
-            "discount": (float(disc) / 100.0) if disc else 0.0,
-            "image": re.sub(r"\s+", "", photo) if photo else "",
-        })
+    elements.append(Paragraph(f"Subtotal: ${subtotal:.2f}", styles["Normal"]))
+    elements.append(Paragraph(f"Delivery: ${delivery:.2f}", styles["Normal"]))
+    elements.append(Paragraph(f"Tax: ${tax:.2f}", styles["Normal"]))
+    elements.append(Paragraph(f"<b>Total: ${total:.2f}</b>", styles["Normal"]))
 
-    if not items:
-        raise ValueError("Could not parse any line items from summary.")
+    doc.build(elements)
 
-    internal_map = {}
-    for line in internal_part.splitlines():
-        line = line.strip()
-        if not line.startswith("["):
-            continue
-        m = re.match(
-            r'\[([^\]]+)\].*?(?:vendor_no:\s*"([^"]*)",\s*)?(?:raw_cost:\s*([0-9.]+))?(?:,\s*cost_disc:\s*([0-9.]+)%)?(?:,\s*cost:\s*([0-9.]+))?',
-            line
-        )
-        if m:
-            item_no, vendor_no, raw_cost, cost_disc, cost = m.groups()
-            internal_map[item_no] = {
-                "vendor_no": vendor_no or "",
-                "raw_cost": float(raw_cost) if raw_cost else 0.0,
-                "cost_disc": float(cost_disc) if cost_disc else 0.0,
-                "cost": float(cost) if cost else 0.0,
-            }
+    # ── EXCEL ──
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Invoice"
 
-    for item in items:
-        item.update(internal_map.get(item["no"], {}))
+    ws.append(["Item", "Description", "Qty", "Unit Price", "Total"])
 
-    return {
-        "number": number.strip(),
-        "date": date.strip(),
-        "reference": ref.strip(),
-        "client_name": client_name,
-        "client_no": client_no,
-        "client_phone": client_phone,
-        "client_email": "",
-        "client_address": client_address,
-        "delivery_type": delivery_type,
-        "delivery_charge": delivery_charge,
-        "tax_rate": tax_rate,
-        "payment_terms": payment_terms,
-        "notes": "",
-        "items": items,
-        "base_filename": base_filename,
-    }
+    for item in inv["items"]:
+        total = item["qty"] * item["unit_price"]
+        ws.append([
+            item.get("no"),
+            item.get("description"),
+            item.get("qty"),
+            item.get("unit_price"),
+            total,
+        ])
 
-
-def reformat_excel_no_decimals(xlsx_path: Path) -> None:
-    wb = load_workbook(xlsx_path)
-    for ws in wb.worksheets:
-        for row in ws.iter_rows():
-            for cell in row:
-                if isinstance(cell.value, (int, float)):
-                    if ws.title == "Invoice Internal":
-                        if cell.column in [5, 7, 8, 10, 11, 12]:
-                            cell.number_format = "$#,##0"
-                        elif cell.column == 4:
-                            cell.number_format = "0"
-                    elif ws.title == "Vendor Numbers":
-                        if cell.column in [4, 6]:
-                            cell.number_format = "$#,##0"
+    xlsx_path = Path(output_path).with_name(Path(output_path).stem + "_INTERNAL.xlsx")
     wb.save(xlsx_path)
-
-
-def generate_from_summary(summary_text: str) -> tuple[Path, Path]:
-    invoice = parse_summary(summary_text)
-    safe_name = invoice.pop("base_filename")
-    pdf_path = OUTPUT_DIR / f"{safe_name}.pdf"
-
-    gg_gen.draw_invoice(invoice, str(pdf_path))
-
-    xlsx_path = pdf_path.with_name(pdf_path.stem + "_INTERNAL.xlsx")
-    if xlsx_path.exists():
-        reformat_excel_no_decimals(xlsx_path)
-
-    return pdf_path, xlsx_path
-
-
-@app.get("/")
-def home():
-    return send_from_directory(BASE_DIR, HTML_FILE.name)
-
-
-@app.post("/generate")
-def generate():
-    payload = request.get_json(silent=True) or {}
-    summary = (payload.get("summary") or "").strip()
-    if not summary:
-        return jsonify({"ok": False, "error": "Missing invoice summary."}), 400
-
-    try:
-        pdf_path, xlsx_path = generate_from_summary(summary)
-        return jsonify({
-            "ok": True,
-            "pdf_name": pdf_path.name,
-            "xlsx_name": xlsx_path.name,
-            "pdf_url": f"/download/{pdf_path.name}",
-            "xlsx_url": f"/download/{xlsx_path.name}",
-        })
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
-@app.get("/download/<path:filename>")
-def download(filename: str):
-    return send_from_directory(OUTPUT_DIR, filename, as_attachment=True)
-
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "5000"))
-    app.run(host="0.0.0.0", port=port, debug=False)
