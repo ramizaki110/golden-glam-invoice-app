@@ -126,6 +126,7 @@ def parse_summary(summary_text: str) -> dict:
         item_no = item_no_match.group(1)
 
         vendor_no = ""
+        vendor_name = ""
         raw_cost = 0.0
         cost_disc = 0.0
         cost = 0.0
@@ -133,6 +134,10 @@ def parse_summary(summary_text: str) -> dict:
         m = re.search(r'vendor_no:\s*"([^"]*)"', line)
         if m:
             vendor_no = m.group(1)
+
+        m = re.search(r'vendor:\s*"([^"]*)"', line)
+        if m:
+            vendor_name = m.group(1)
 
         m = re.search(r"raw_cost:\s*([0-9.]+)", line)
         if m:
@@ -147,6 +152,7 @@ def parse_summary(summary_text: str) -> dict:
             cost = float(m.group(1))
 
         internal_map[item_no] = {
+            "vendor_name": vendor_name,
             "vendor_no": vendor_no,
             "raw_cost": raw_cost,
             "cost_disc": cost_disc,
