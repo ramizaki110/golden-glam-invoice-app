@@ -3,6 +3,7 @@ import base64
 import tempfile
 from pathlib import Path
 from datetime import datetime
+from collections import deque
 
 from PIL import Image as PILImage
 
@@ -33,6 +34,22 @@ DARK = colors.HexColor("#4a4745")
 MID = colors.HexColor("#8c8a87")
 BORDER = colors.HexColor("#d8d5d2")
 
+# Same overall width used by all major blocks
+CONTENT_WIDTH = 7.20 * inch
+
+# Item table widths must sum to CONTENT_WIDTH
+ITEM_COL_WIDTHS = [
+    0.62 * inch,  # item no
+    1.92 * inch,  # description
+    0.92 * inch,  # est del
+    0.52 * inch,  # type
+    0.34 * inch,  # qty
+    0.68 * inch,  # unit price
+    0.40 * inch,  # disc
+    0.56 * inch,  # total
+    1.24 * inch,  # photo
+]
+
 
 def usd(v: float) -> str:
     return f"${v:,.0f}"
@@ -46,9 +63,55 @@ def fmt_date_for_footer(date_str: str) -> str:
         return date_str or ""
 
 
+def _is_dark_pixel(px, threshold=45):
+    r, g, b, a = px
+    return a > 0 and r <= threshold and g <= threshold and b <= threshold
+
+
+def _whiten_edge_black_background(img_rgba: PILImage.Image, threshold=45) -> PILImage.Image:
+    """
+    Replaces connected near-black background coming from the outer edges with white.
+    This helps when source images already have black background baked in.
+    """
+    img = img_rgba.copy()
+    w, h = img.size
+    px = img.load()
+
+    visited = set()
+    q = deque()
+
+    # Seed flood fill from edges only
+    for x in range(w):
+        q.append((x, 0))
+        q.append((x, h - 1))
+    for y in range(h):
+        q.append((0, y))
+        q.append((w - 1, y))
+
+    while q:
+        x, y = q.popleft()
+        if (x, y) in visited:
+            continue
+        visited.add((x, y))
+
+        if x < 0 or y < 0 or x >= w or y >= h:
+            continue
+
+        if _is_dark_pixel(px[x, y], threshold=threshold):
+            px[x, y] = (255, 255, 255, 255)
+            for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+                if 0 <= nx < w and 0 <= ny < h and (nx, ny) not in visited:
+                    q.append((nx, ny))
+
+    return img
+
+
 def _decode_image(image_value: str) -> str | None:
     """
-    Decode image and flatten transparency onto WHITE so it never renders black.
+    Decode image and force a white background:
+    - preserve transparency if present
+    - flatten transparency onto white
+    - whiten connected near-black background from edges
     """
     if not image_value:
         return None
@@ -68,6 +131,10 @@ def _decode_image(image_value: str) -> str | None:
 
         img = PILImage.open(src_path).convert("RGBA")
 
+        # First, whiten edge-connected black background
+        img = _whiten_edge_black_background(img, threshold=45)
+
+        # Then flatten onto white
         white_bg = PILImage.new("RGBA", img.size, (255, 255, 255, 255))
         white_bg.paste(img, (0, 0), img)
 
@@ -258,8 +325,8 @@ def draw_invoice(inv, output_path):
     doc = SimpleDocTemplate(
         output_path,
         pagesize=letter,
-        leftMargin=0.35 * inch,
-        rightMargin=0.35 * inch,
+        leftMargin=0.30 * inch,
+        rightMargin=0.30 * inch,
         topMargin=0.28 * inch,
         bottomMargin=1.00 * inch,
     )
@@ -310,14 +377,14 @@ def draw_invoice(inv, output_path):
         spaceAfter=6,
     )
 
-    # Bigger / wider logo
+    # Bigger, wider logo
     if LOGO_PATH.exists():
-        logo = Image(str(LOGO_PATH), width=2.55 * inch, height=1.05 * inch)
+        logo = Image(str(LOGO_PATH), width=2.70 * inch, height=1.10 * inch)
         logo.hAlign = "CENTER"
         elements.append(logo)
         elements.append(Spacer(1, 10))
 
-    # True left aligned full-width client block
+    # Everything starts from true left margin
     client_rows = [
         [Paragraph("Tel. | Mob.:", label_style), Paragraph(inv.get("client_phone", ""), value_style)],
         [Paragraph("Name:", label_style), Paragraph(inv.get("client_name", ""), value_style)],
@@ -332,7 +399,7 @@ def draw_invoice(inv, output_path):
             Paragraph(line, value_style),
         ])
 
-    client_tbl = Table(client_rows, colWidths=[1.05 * inch, 6.05 * inch])
+    client_tbl = Table(client_rows, colWidths=[1.05 * inch, CONTENT_WIDTH - 1.05 * inch])
     client_tbl.setStyle(TableStyle([
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
@@ -345,11 +412,12 @@ def draw_invoice(inv, output_path):
 
     elements.append(Paragraph("Invoice", invoice_title_style))
 
+    # Same width as item table
     meta_data = [
         ["Invoice Date:", "Invoice", "Client No:", "Your Reference:"],
         [inv.get("date", ""), inv.get("number", ""), str(inv.get("client_no", "")), inv.get("reference", "")],
     ]
-    meta_tbl = Table(meta_data, colWidths=[1.45 * inch, 1.40 * inch, 1.35 * inch, 3.15 * inch])
+    meta_tbl = Table(meta_data, colWidths=[1.45 * inch, 1.40 * inch, 1.35 * inch, CONTENT_WIDTH - 1.45 * inch - 1.40 * inch - 1.35 * inch])
     meta_tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), BLACK),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -401,10 +469,7 @@ def draw_invoice(inv, output_path):
             photo_cell,
         ])
 
-    item_tbl = Table(
-        rows,
-        colWidths=[0.68 * inch, 2.05 * inch, 0.95 * inch, 0.55 * inch, 0.35 * inch, 0.72 * inch, 0.43 * inch, 0.58 * inch, 0.92 * inch]
-    )
+    item_tbl = Table(rows, colWidths=ITEM_COL_WIDTHS)
     item_tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), BLACK),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -426,8 +491,15 @@ def draw_invoice(inv, output_path):
     tax_amt = (subtotal + delivery_charge) * (inv.get("tax_rate", 0) or 0)
     total = subtotal + delivery_charge + tax_amt
 
+    # White Glove Delivery right aligned
     if inv.get("delivery_type"):
-        elements.append(Paragraph(f"<b>{inv.get('delivery_type')}</b>", cell_style))
+        delivery_tbl = Table([[Paragraph(f"<b>{inv.get('delivery_type')}</b>", cell_style)]], colWidths=[CONTENT_WIDTH])
+        delivery_tbl.setStyle(TableStyle([
+            ("ALIGN", (0, 0), (-1, -1), "RIGHT"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        elements.append(delivery_tbl)
         elements.append(Spacer(1, 4))
 
     totals_tbl = Table([
@@ -448,7 +520,7 @@ def draw_invoice(inv, output_path):
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
 
-    totals_wrap = Table([["", totals_tbl]], colWidths=[4.85 * inch, 2.15 * inch])
+    totals_wrap = Table([["", totals_tbl]], colWidths=[CONTENT_WIDTH - 2.70 * inch, 2.70 * inch])
     totals_wrap.setStyle(TableStyle([
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
