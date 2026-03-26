@@ -259,7 +259,13 @@
     <div class="card-title">Add item to library</div>
     <div class="grid2">
       <div class="field"><label>Item No. (customer)</label><input id="ni_no"></div>
-      <div class="field"><label>Vendor name <span class="badge-internal">internal</span></label><input id="ni_vendor_name" placeholder="e.g. Uttermost"></div>
+      <div class="field">
+        <label>Vendor name <span class="badge-internal">internal</span></label>
+        <select id="ni_vendor_sel" style="margin-bottom:3px" onchange="applyLibVendorSel()">
+          <option value="">— select vendor —</option>
+        </select>
+        <input id="ni_vendor_name" placeholder="or type vendor name">
+      </div>
       <div class="field"><label>Vendor No. <span class="badge-internal">internal</span></label><input id="ni_vendor_no" placeholder="e.g. UTT-34343"></div>
     </div>
     <div class="field"><label>Description</label><input id="ni_desc" placeholder="Item name | dimensions"></div>
@@ -403,6 +409,7 @@ function showTab(id, btn){
   if(id==='clients') renderClientList();
   if(id==='items')   renderLibraryList();
   if(id==='vendors') renderVendorList();
+  if(id==='items')   refreshVendorDropdowns();
   if(id==='export')  buildSummary();
   refreshClientDropdown();
 }
@@ -994,16 +1001,29 @@ function delVendor(i){
   if(confirm('Delete '+vendors[i].name+'?')){ vendors.splice(i,1); persist(); renderVendorList(); refreshVendorDropdowns(); }
 }
 function refreshVendorDropdowns(){
+  // Refresh line item vendor dropdowns
   document.querySelectorAll('select[id^="i"][id$="_vendor_sel"]').forEach(sel => {
     const cur = sel.value;
     sel.innerHTML = '<option value="">— select vendor —</option>' +
       vendors.map(v=>`<option value="${v.name}">${v.name}${v.code?' ('+v.code+')':''}</option>`).join('');
     sel.value = cur;
   });
+  // Refresh Item Library vendor dropdown
+  const libSel = document.getElementById('ni_vendor_sel');
+  if(libSel){
+    const cur = libSel.value;
+    libSel.innerHTML = '<option value="">— select vendor —</option>' +
+      vendors.map(v=>`<option value="${v.name}">${v.name}${v.code?' ('+v.code+')':''}</option>`).join('');
+    libSel.value = cur;
+  }
 }
 function applyVendorSel(id){
   const sel = document.getElementById('i'+id+'_vendor_sel');
   if(sel.value) document.getElementById('i'+id+'_vendor').value = sel.value;
+}
+function applyLibVendorSel(){
+  const sel = document.getElementById('ni_vendor_sel');
+  if(sel.value) document.getElementById('ni_vendor_name').value = sel.value;
 }
 
 // ── INIT ───────────────────────────────────────────────────────────────────────
