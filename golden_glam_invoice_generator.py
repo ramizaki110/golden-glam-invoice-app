@@ -306,7 +306,7 @@ def _write_internal_excel(inv: dict, output_path: str):
         c2 = ws.cell(r, 2, value); c2.font = bold_font; c2.border = bdr; c2.alignment = right
         c2.number_format = "$#,##0.00"
         c3 = ws.cell(r, 3, pct);   c3.font = norm_font; c3.border = bdr; c3.alignment = right
-        if pct is not None: c3.number_format = "0.0%"
+        c3.number_format = "0.0%"   # always set — blank cells show nothing, decimal cells show %
         ws.cell(r, 4).border = bdr; ws.cell(r, 5).border = bdr
         if highlight: c2.fill = highlight; c3.fill = highlight
 
@@ -403,14 +403,16 @@ def _write_internal_excel(inv: dict, output_path: str):
         for col, v in enumerate(vals, 1):
             c = ws2.cell(row_idx, col, v)
             c.font = norm_font; c.border = bdr; c.alignment = left
-        # Formats
+        # Formats — col map: 5=Qty(plain), 7=UnitPrice($), 8=Disc%(%), 
+        #   9=LineTotal($), 10=RawCost($), 11=CostDisc%(%), 12=UnitCost($),
+        #   13=ExtCost($), 14=Profit($), 15=GM%(%)
+        for col in [5]:   # Qty — plain integer, no $ sign
+            ws2.cell(row_idx, col).number_format = "0"
         for col, fmt in [(7,"$#,##0.00"),(9,"$#,##0.00"),(10,"$#,##0.00"),
                          (12,"$#,##0.00"),(13,"$#,##0.00"),(14,"$#,##0.00")]:
             ws2.cell(row_idx, col).number_format = fmt
-        for col in [8, 11]:
+        for col in [8, 11, 15]:   # all % columns
             ws2.cell(row_idx, col).number_format = "0.0%"
-        if isinstance(ws2.cell(row_idx, 15).value, float):
-            ws2.cell(row_idx, 15).number_format = "0.0%"
         # GM colour
         gm_val = d["gm"]
         if gm_val is not None:
@@ -741,6 +743,12 @@ def draw_invoice(inv, output_path):
             f"Payment is in installments. Please refer to order no. {inv.get('number','')} and client no. {inv.get('client_no','')} with your payment."
         ),
     }
+
+    # ── Notes (from invoice form) ──────────────────────────────────
+    if inv.get("notes", "").strip():
+        elements.append(Spacer(1, 6))
+        elements.append(Paragraph(inv["notes"].strip(), note_style))
+        elements.append(Spacer(1, 4))
 
     elements.append(Paragraph(pay_map.get(inv.get("payment_terms", "standard"), pay_map["standard"]), note_style))
     elements.append(Spacer(1, 6))
