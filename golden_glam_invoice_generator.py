@@ -472,8 +472,10 @@ def draw_invoice(inv, output_path):
         ("GRID", (0, 0), (-1, -1), 0.3, BORDER),
         ("TOPPADDING", (0, 1), (-1, -1), 5),
         ("BOTTOMPADDING", (0, 1), (-1, -1), 5),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-2, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-2, -1), 4),
+        ("LEFTPADDING", (-1, 1), (-1, -1), 2),
+        ("RIGHTPADDING", (-1, 1), (-1, -1), 2),
         ("ALIGN", (3, 1), (8, -1), "CENTER"),
     ]))
     elements.append(item_tbl)
