@@ -93,17 +93,15 @@ button {
 </div>
 
 <script>
-
 function showTab(tab, btn) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
 }
 
 /*
- ✅ IMAGE PROCESSING FIX
- - Keeps transparency (no black background)
- - Uses PNG instead of JPEG
- - DOES NOT force white background
+  Image helper kept here for compatibility.
+  This hosted page itself does not upload/process images directly,
+  but if reused later it preserves transparency by exporting PNG.
 */
 function processImage(img) {
   const max = 500;
@@ -117,10 +115,7 @@ function processImage(img) {
   cv.height = h;
 
   const ctx = cv.getContext('2d');
-
-  // IMPORTANT: clear instead of filling (preserves transparency)
   ctx.clearRect(0, 0, w, h);
-
   ctx.drawImage(img, 0, 0, w, h);
 
   return cv.toDataURL('image/png');
@@ -129,15 +124,14 @@ function processImage(img) {
 // Generate
 async function generate() {
   const summary = document.getElementById("summary").value;
-
   const resDiv = document.getElementById("result");
   resDiv.innerHTML = "Generating...";
 
   try {
     const res = await fetch("/generate", {
       method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({summary})
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ summary })
     });
 
     const data = await res.json();
@@ -152,12 +146,10 @@ async function generate() {
       <a href="${data.pdf_url}" target="_blank">Download PDF</a><br>
       <a href="${data.xlsx_url}" target="_blank">Download Excel</a>
     `;
-
   } catch (e) {
     resDiv.innerHTML = "❌ Failed to generate";
   }
 }
-
 </script>
 
 </body>
