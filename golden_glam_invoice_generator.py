@@ -233,9 +233,9 @@ def draw_invoice(inv, output_path):
     doc = SimpleDocTemplate(
         output_path,
         pagesize=letter,
-        leftMargin=0.55 * inch,
-        rightMargin=0.55 * inch,
-        topMargin=0.38 * inch,
+        leftMargin=0.45 * inch,
+        rightMargin=0.45 * inch,
+        topMargin=0.32 * inch,
         bottomMargin=1.00 * inch,
     )
     doc._gg_invoice = inv
@@ -285,14 +285,14 @@ def draw_invoice(inv, output_path):
         spaceAfter=6,
     )
 
-    # (1) Bigger centered logo
+    # Bigger, non-squished centered logo
     if LOGO_PATH.exists():
-        logo = Image(str(LOGO_PATH), width=2.10 * inch, height=1.35 * inch)
+        logo = Image(str(LOGO_PATH), width=2.25 * inch, height=1.10 * inch)
         logo.hAlign = "CENTER"
         elements.append(logo)
-        elements.append(Spacer(1, 6))
+        elements.append(Spacer(1, 10))
 
-    # (2) Left block indented to left page margin
+    # Left block aligned to true left margin and same width as content area
     client_rows = [
         [Paragraph("Tel. | Mob.:", label_style), Paragraph(inv.get("client_phone", ""), value_style)],
         [Paragraph("Name:", label_style), Paragraph(inv.get("client_name", ""), value_style)],
@@ -307,10 +307,10 @@ def draw_invoice(inv, output_path):
             Paragraph(line, value_style),
         ])
 
-    client_tbl = Table(client_rows, colWidths=[0.95 * inch, 3.45 * inch])
+    client_tbl = Table(client_rows, colWidths=[1.05 * inch, 5.65 * inch])
     client_tbl.setStyle(TableStyle([
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 1),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -318,15 +318,13 @@ def draw_invoice(inv, output_path):
     elements.append(client_tbl)
     elements.append(Spacer(1, 10))
 
-    # Invoice title
     elements.append(Paragraph("Invoice", invoice_title_style))
 
-    # (3) Meta table left aligned full width
     meta_data = [
         ["Invoice Date:", "Invoice", "Client No:", "Your Reference:"],
         [inv.get("date", ""), inv.get("number", ""), str(inv.get("client_no", "")), inv.get("reference", "")],
     ]
-    meta_tbl = Table(meta_data, colWidths=[1.35 * inch, 1.30 * inch, 1.25 * inch, 3.05 * inch])
+    meta_tbl = Table(meta_data, colWidths=[1.35 * inch, 1.30 * inch, 1.25 * inch, 2.85 * inch])
     meta_tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), BLACK),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -345,7 +343,6 @@ def draw_invoice(inv, output_path):
     elements.append(meta_tbl)
     elements.append(Spacer(1, 12))
 
-    # Item table
     headers = ["ITEM NO.", "DESCRIPTION", "EST. DEL.", "TYPE", "QTY", "UNIT PRICE", "DISC.", "TOTAL", "PHOTO"]
     rows = [headers]
 
@@ -363,18 +360,7 @@ def draw_invoice(inv, output_path):
             try:
                 img = Image(img_path, width=0.82 * inch, height=0.52 * inch)
                 img.hAlign = "CENTER"
-
-                # (4) white background behind image cell so no dark box effect
-                photo_cell = Table([[img]], colWidths=[0.90 * inch], rowHeights=[0.60 * inch])
-                photo_cell.setStyle(TableStyle([
-                    ("BACKGROUND", (0, 0), (-1, -1), colors.white),
-                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 2),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 2),
-                    ("TOPPADDING", (0, 0), (-1, -1), 2),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-                ]))
+                photo_cell = img
             except Exception:
                 photo_cell = ""
 
@@ -392,7 +378,7 @@ def draw_invoice(inv, output_path):
 
     item_tbl = Table(
         rows,
-        colWidths=[0.65 * inch, 2.05 * inch, 0.95 * inch, 0.55 * inch, 0.35 * inch, 0.75 * inch, 0.45 * inch, 0.60 * inch, 0.95 * inch]
+        colWidths=[0.65 * inch, 1.95 * inch, 0.95 * inch, 0.55 * inch, 0.35 * inch, 0.72 * inch, 0.43 * inch, 0.58 * inch, 0.92 * inch]
     )
     item_tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), BLACK),
@@ -419,7 +405,7 @@ def draw_invoice(inv, output_path):
         elements.append(Paragraph(f"<b>{inv.get('delivery_type')}</b>", cell_style))
         elements.append(Spacer(1, 4))
 
-    # (5) line after SubTotal and after Total
+    # Line below Sales Tax and below Total
     totals_tbl = Table([
         ["SubTotal", usd(subtotal)],
         ["Delivery Charge", usd(delivery_charge)],
@@ -428,7 +414,7 @@ def draw_invoice(inv, output_path):
     ], colWidths=[1.7 * inch, 1.0 * inch])
     totals_tbl.setStyle(TableStyle([
         ("LINEABOVE", (0, 0), (-1, 0), 0.8, BLACK),
-        ("LINEBELOW", (0, 0), (-1, 0), 0.8, BORDER),
+        ("LINEBELOW", (0, 2), (-1, 2), 0.8, BORDER),
         ("LINEBELOW", (0, 3), (-1, 3), 0.8, BLACK),
         ("FONTNAME", (0, 0), (-1, -2), "Helvetica"),
         ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
@@ -438,7 +424,7 @@ def draw_invoice(inv, output_path):
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
 
-    totals_wrap = Table([["", totals_tbl]], colWidths=[4.5 * inch, 2.2 * inch])
+    totals_wrap = Table([["", totals_tbl]], colWidths=[4.55 * inch, 2.15 * inch])
     totals_wrap.setStyle(TableStyle([
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
