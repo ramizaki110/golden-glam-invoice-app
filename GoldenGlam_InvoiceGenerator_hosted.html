@@ -124,6 +124,7 @@
   </div>
   <div class="nav-section">Create</div>
   <button class="nav-btn active" onclick="showTab('invoice',this)">🧾 New Invoice</button>
+  <button class="nav-btn" onclick="showTab('invoicelib',this)">📁 Invoice Library</button>
   <div class="nav-section">Manage</div>
   <button class="nav-btn" onclick="showTab('clients',this)">👤 Client Book</button>
   <button class="nav-btn" onclick="showTab('items',this)">📦 Item Library</button>
@@ -218,7 +219,24 @@
 
   <div class="row-actions">
     <button class="btn btn-gold" onclick="showTab('export', document.querySelector('.nav-btn:nth-child(8)'))">Summary &amp; Export →</button>
+    <button class="btn btn-primary" onclick="saveCurrentInvoice()">💾 Save invoice</button>
     <button class="btn" onclick="clearAll()">Clear all</button>
+  </div>
+</div>
+
+
+<!-- ════ INVOICE LIBRARY TAB ════ -->
+<div id="tab-invoicelib" class="tab-panel">
+  <div class="page-title">Invoice Library</div>
+  <div class="page-sub">Save and reload past invoices. Saved invoices include all line items, client details, pricing and photos.</div>
+
+  <div class="card">
+    <div class="card-title">Saved invoices
+      <button class="btn btn-sm btn-primary" onclick="saveCurrentInvoice()" style="margin-left:auto">💾 Save current invoice</button>
+    </div>
+    <div id="invoice-library-list" class="saved-list">
+      <div class="empty-msg">No saved invoices yet. Fill in a New Invoice then click "Save current invoice".</div>
+    </div>
   </div>
 </div>
 
@@ -406,11 +424,12 @@ const PRESET_CLIENTS = [
 let customClients = JSON.parse(localStorage.getItem('gg_clients')||'[]');
 let library       = JSON.parse(localStorage.getItem('gg_library')||'[]');
 let vendors       = JSON.parse(localStorage.getItem('gg_vendors')||'[]');
+let savedInvoices = JSON.parse(localStorage.getItem('gg_invoices')||'[]');
 let items         = [];
 let itemCounter   = 0;
 
 function allClients(){ return [...PRESET_CLIENTS, ...customClients]; }
-function persist(){ localStorage.setItem('gg_clients', JSON.stringify(customClients)); localStorage.setItem('gg_library', JSON.stringify(library)); localStorage.setItem('gg_vendors', JSON.stringify(vendors)); }
+function persist(){ localStorage.setItem('gg_clients', JSON.stringify(customClients)); localStorage.setItem('gg_library', JSON.stringify(library)); localStorage.setItem('gg_vendors', JSON.stringify(vendors)); localStorage.setItem('gg_invoices', JSON.stringify(savedInvoices)); }
 
 // ── TABS ───────────────────────────────────────────────────────────────────────
 function showTab(id, btn){
@@ -422,6 +441,7 @@ function showTab(id, btn){
   if(id==='clients') renderClientList();
   if(id==='items')   renderLibraryList();
   if(id==='vendors') renderVendorList();
+  if(id==='invoicelib') renderInvoiceLibrary();
   if(id==='items')   refreshVendorDropdowns();
   if(id==='export')  buildSummary();
   refreshClientDropdown();
@@ -1063,6 +1083,144 @@ function applyVendorSel(id){
 function applyLibVendorSel(){
   const sel = document.getElementById('ni_vendor_sel');
   if(sel.value) document.getElementById('ni_vendor_name').value = sel.value;
+}
+
+
+// ── INVOICE LIBRARY ────────────────────────────────────────────────────────────
+function captureCurrentInvoice(){
+  // Capture all form fields and item data into a serialisable object
+  const inv = {
+    inv_num:        document.getElementById('inv_num').value,
+    inv_date:       document.getElementById('inv_date').value,
+    inv_ref:        document.getElementById('inv_ref').value,
+    client_name:    document.getElementById('client_name').value,
+    client_no:      document.getElementById('client_no').value,
+    client_phone:   document.getElementById('client_phone').value,
+    client_email:   document.getElementById('client_email').value,
+    client_addr:    document.getElementById('client_addr').value,
+    delivery_type:  getDeliveryType(),
+    delivery_charge:document.getElementById('delivery_charge').value,
+    tax_rate:       document.getElementById('tax_rate').value,
+    payment_terms:  document.getElementById('payment_terms').value,
+    inv_notes:      document.getElementById('inv_notes').value,
+    savedAt:        new Date().toISOString(),
+    lineItems: items.map(({id}) => ({
+      no:        document.getElementById('i'+id+'_no')?.value||'',
+      desc:      document.getElementById('i'+id+'_desc')?.value||'',
+      vendor:    document.getElementById('i'+id+'_vendor')?.value||'',
+      vno:       document.getElementById('i'+id+'_vno')?.value||'',
+      qty:       document.getElementById('i'+id+'_qty')?.value||1,
+      price:     document.getElementById('i'+id+'_price')?.value||'',
+      disc:      document.getElementById('i'+id+'_disc')?.value||'',
+      raw_cost:  document.getElementById('i'+id+'_raw_cost')?.value||'',
+      cost_disc: document.getElementById('i'+id+'_cost_disc')?.value||'',
+      cost:      document.getElementById('i'+id+'_cost')?.value||'',
+      del:       document.getElementById('i'+id+'_del')?.value||'',
+      unit:      getUnit(id),
+      photo:     _compressedImgs[id]||'',
+    }))
+  };
+  return inv;
+}
+
+function saveCurrentInvoice(){
+  const inv = captureCurrentInvoice();
+  const label = inv.inv_num || 'Untitled';
+  if(!inv.inv_num && !inv.client_name){ alert('Please fill in at least an invoice number or client name first.'); return; }
+  // Check if invoice number already exists — offer to overwrite
+  const existingIdx = savedInvoices.findIndex(s => s.inv_num && s.inv_num === inv.inv_num);
+  if(existingIdx >= 0){
+    if(!confirm(`Invoice ${inv.inv_num} is already saved. Overwrite it?`)) return;
+    savedInvoices[existingIdx] = inv;
+  } else {
+    savedInvoices.unshift(inv); // newest first
+  }
+  persist();
+  renderInvoiceLibrary();
+  alert(`Invoice ${label} saved to library!`);
+}
+
+function loadInvoice(idx){
+  if(!confirm('Load this invoice? Any unsaved changes to the current invoice will be lost.')) return;
+  const inv = savedInvoices[idx];
+  // Clear current state
+  items=[]; itemCounter=0;
+  document.getElementById('items-container').innerHTML='';
+  Object.entries({
+    inv_num: inv.inv_num, inv_date: inv.inv_date, inv_ref: inv.inv_ref,
+    client_name: inv.client_name, client_no: inv.client_no,
+    client_phone: inv.client_phone, client_email: inv.client_email,
+    client_addr: inv.client_addr, delivery_charge: inv.delivery_charge,
+    tax_rate: inv.tax_rate, inv_notes: inv.inv_notes,
+  }).forEach(([k,v]) => { const el=document.getElementById(k); if(el) el.value=v||''; });
+  // Delivery type
+  const dtSel = document.getElementById('delivery_type');
+  const knownTypes = ['White Glove Delivery','Standard Delivery','','__custom__'];
+  if(knownTypes.includes(inv.delivery_type)){
+    dtSel.value = inv.delivery_type;
+  } else {
+    dtSel.value = '__custom__';
+    document.getElementById('delivery_type_custom').value = inv.delivery_type||'';
+    document.getElementById('delivery_type_custom').style.display = 'inline-block';
+  }
+  toggleDeliveryCustom();
+  // Payment terms
+  document.getElementById('payment_terms').value = inv.payment_terms||'standard';
+  // Line items
+  (inv.lineItems||[]).forEach(li => {
+    addItem({
+      no: li.no, desc: li.desc, vendor: li.vendor, vno: li.vno,
+      qty: li.qty, price: li.price, disc: li.disc,
+      raw_cost: li.raw_cost, cost_disc: li.cost_disc, cost: li.cost,
+      del: li.del, unit: li.unit,
+    });
+    // Restore photo preview if saved
+    if(li.photo){
+      const lastId = itemCounter;
+      _compressedImgs[lastId] = li.photo;
+      const prev = document.getElementById('i'+lastId+'_imgprev');
+      if(prev){ prev.src=li.photo; prev.style.display=''; }
+    }
+  });
+  refreshClientDropdown();
+  recalc();
+  // Navigate to invoice tab
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelector('.nav-btn[onclick*="invoice'"]')?.classList.add('active');
+  showTab('invoice', document.querySelector('.nav-btn[onclick*="invoice'"]'));
+}
+
+function deleteInvoice(idx){
+  const inv = savedInvoices[idx];
+  if(!confirm(`Delete saved invoice ${inv.inv_num||'(untitled)'} — ${inv.client_name||''}?`)) return;
+  savedInvoices.splice(idx,1);
+  persist();
+  renderInvoiceLibrary();
+}
+
+function renderInvoiceLibrary(){
+  const el = document.getElementById('invoice-library-list');
+  if(!el) return;
+  if(!savedInvoices.length){
+    el.innerHTML='<div class="empty-msg">No saved invoices yet. Fill in a New Invoice then click "Save current invoice".</div>';
+    return;
+  }
+  el.innerHTML = savedInvoices.map((inv, i) => {
+    const date = inv.savedAt ? new Date(inv.savedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+    const items_count = (inv.lineItems||[]).length;
+    return `
+    <div class="saved-row">
+      <div style="flex:1;min-width:0">
+        <div class="name">${inv.inv_num||'Untitled'} &nbsp;|&nbsp; ${inv.client_name||'—'}</div>
+        <div class="meta">${inv.inv_date||''} &nbsp;·&nbsp; ${items_count} item${items_count!==1?'s':''} &nbsp;·&nbsp; saved ${date}</div>
+        ${inv.inv_ref?'<div class="meta">Ref: '+inv.inv_ref+'</div>':''}
+      </div>
+      <div class="row-actions">
+        <button class="btn btn-xs btn-primary" onclick="loadInvoice(${i})">Load</button>
+        <button class="btn btn-xs btn-danger" onclick="deleteInvoice(${i})">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 // ── INIT ───────────────────────────────────────────────────────────────────────
