@@ -51,7 +51,7 @@ def parse_summary(summary_text: str) -> dict:
     delivery_charge = 0.0
     tax_rate = 0.0
     m = re.search(
-        r"\n([^\n|]*Delivery(?: \([^)]+\))?)\|sub:\$([0-9.,]+)\|del:\$([0-9.,]+)\|tax\((\d+(?:\.\d+)?)%\):\$([0-9.,]+)\|total:\$([0-9.,]+)",
+        r"\n([^\n|]*Delivery(?: \([^)]+\))?)\|sub:\$(-?[0-9.,]+)\|del:\$(-?[0-9.,]+)\|tax\((\d+(?:\.\d+)?)%\):\$(-?[0-9.,]+)\|total:\$(-?[0-9.,]+)",
         summary_text
     )
     if m:
@@ -93,7 +93,7 @@ def parse_summary(summary_text: str) -> dict:
     items_part = "\n".join(cleaned_lines).strip()
 
     item_pattern = re.compile(
-        r"\[([^\]]+)\](.*?)\|([^|\n]+)\|qty:(\d+)\|\$([0-9.,]+)(?:\|disc:([0-9.]+)%?)?\|tot:\$([0-9.,]+)\|del:(.*?)(?:\n\s*Photo-base64:\s*(data:image\/[a-zA-Z]+;base64,[A-Za-z0-9+/=\s]+))?(?=\n\[|\n[^\n|]*Delivery(?: \([^)]+\))?\||\npay:|\nnotes:|\nINTERNAL|\Z)",
+        r"\[([^\]]+)\](.*?)\|([^|\n]+)\|qty:(\d+)\|\$(-?[0-9.,]+)(?:\|disc:([0-9.]+)%?)?\|tot:\$(-?[0-9.,]+)\|del:(.*?)(?:\n\s*Photo-base64:\s*(data:image\/[a-zA-Z]+;base64,[A-Za-z0-9+/=\s]+))?(?=\n\[|\n[^\n|]*Delivery(?: \([^)]+\))?\||\npay:|\nnotes:|\nINTERNAL|\Z)",
         re.S,
     )
 
