@@ -2,936 +2,159 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Golden Glam — Invoice Generator</title>
+<title>Golden Glam Invoice Generator</title>
+
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  :root {
-    --black: #231f1e;
-    --dark: #4a4745;
-    --mid: #8c8a87;
-    --border: #e0dedd;
-    --bg: #faf9f8;
-    --surface: #ffffff;
-    --accent: #231f1e;
-    --gold: #b8963e;
-    --danger: #c0392b;
-    --green: #1d6a3e;
-    --radius: 8px;
-    --shadow: 0 1px 3px rgba(0,0,0,0.08);
-  }
-  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--black); font-size: 14px; }
+body {
+  font-family: Arial, sans-serif;
+  margin: 0;
+  display: flex;
+}
 
-  /* ── LAYOUT ── */
-  .shell { display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }
-  .sidebar { background: var(--black); color: #e8e4df; padding: 0; position: sticky; top: 0; height: 100vh; overflow-y: auto; display: flex; flex-direction: column; }
-  .main { padding: 2rem; max-width: 860px; }
+.sidebar {
+  width: 220px;
+  background: #111;
+  color: #fff;
+  padding: 20px;
+}
 
-  /* ── SIDEBAR ── */
-  .sidebar-logo { padding: 1.5rem 1.25rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.08); }
-  .sidebar-logo .brand { font-size: 11px; letter-spacing: 3px; color: #b8963e; font-weight: 600; text-transform: uppercase; }
-  .sidebar-logo .sub { font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 2px; }
-  .nav-section { padding: 1rem 1.25rem 0.25rem; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: rgba(255,255,255,0.3); }
-  .nav-btn { display: block; width: 100%; text-align: left; padding: 0.55rem 1.25rem; background: none; border: none; color: rgba(255,255,255,0.65); font-size: 13px; cursor: pointer; border-left: 2px solid transparent; transition: all .15s; }
-  .nav-btn:hover { color: #fff; background: rgba(255,255,255,0.05); }
-  .nav-btn.active { color: #fff; border-left-color: var(--gold); background: rgba(184,150,62,0.08); }
-  .sidebar-footer { margin-top: auto; padding: 1rem 1.25rem; font-size: 11px; color: rgba(255,255,255,0.25); border-top: 1px solid rgba(255,255,255,0.06); }
+.sidebar .brand {
+  font-weight: bold;
+  font-size: 18px;
+}
 
-  /* ── TABS ── */
-  .tab-panel { display: none; } .tab-panel.active { display: block; }
+.sidebar .sub {
+  font-size: 12px;
+  margin-bottom: 20px;
+}
 
-  /* ── CARDS ── */
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem 1.5rem; margin-bottom: 1rem; box-shadow: var(--shadow); }
-  .card-title { font-size: 13px; font-weight: 600; color: var(--dark); letter-spacing: 0.3px; margin-bottom: 1rem; padding-bottom: 0.6rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+.nav-btn {
+  display: block;
+  width: 100%;
+  margin: 5px 0;
+  padding: 10px;
+  border: none;
+  background: #222;
+  color: #fff;
+  cursor: pointer;
+}
 
-  /* ── FORM ── */
-  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
-  .grid4 { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 10px; }
-  .field { margin-bottom: 0.7rem; }
-  .field:last-child { margin-bottom: 0; }
-  label { font-size: 11.5px; font-weight: 600; color: var(--dark); display: block; margin-bottom: 4px; letter-spacing: 0.2px; }
-  label .internal { font-size: 10px; font-weight: 400; color: var(--mid); background: #f0ede8; padding: 1px 6px; border-radius: 10px; margin-left: 5px; }
-  input, select, textarea { width: 100%; font-size: 13px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--black); font-family: inherit; transition: border-color .15s; }
-  input:focus, select:focus, textarea:focus { outline: none; border-color: #999; }
-  textarea { resize: vertical; }
+.nav-btn.active {
+  background: #444;
+}
 
-  /* ── BUTTONS ── */
-  .btn { font-size: 12.5px; padding: 7px 16px; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--black); cursor: pointer; font-family: inherit; transition: all .15s; font-weight: 500; }
-  .btn:hover { background: #f5f2ef; }
-  .btn-primary { background: var(--black); color: #fff; border-color: var(--black); }
-  .btn-primary:hover { background: #3a3532; }
-  .btn-gold { background: var(--gold); color: #fff; border-color: var(--gold); }
-  .btn-gold:hover { background: #a07c30; }
-  .btn-danger { color: var(--danger); border-color: #f0c4c0; }
-  .btn-danger:hover { background: #fff5f4; }
-  .btn-sm { font-size: 11.5px; padding: 4px 10px; }
-  .btn-xs { font-size: 11px; padding: 3px 8px; }
+.content {
+  padding: 20px;
+  flex: 1;
+}
 
-  /* ── ITEM ROWS ── */
-  .item-block { border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; margin-bottom: 0.75rem; background: #fdfcfb; position: relative; }
-  .item-block-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
-  .item-num { font-size: 11px; font-weight: 700; color: var(--mid); letter-spacing: 1px; text-transform: uppercase; }
-  .line-total-badge { font-size: 13px; font-weight: 700; color: var(--black); }
-  .gm-pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; margin-left: 6px; }
-  .gm-good { background: #d4edda; color: #155724; }
-  .gm-warn { background: #fff3cd; color: #856404; }
-  .gm-bad  { background: #f8d7da; color: #721c24; }
-  .img-preview { width: 64px; height: 64px; object-fit: cover; border-radius: 5px; border: 1px solid var(--border); }
+textarea {
+  width: 100%;
+  height: 200px;
+}
 
-  /* ── TOTALS ── */
-  .totals-box { background: #fdfcfb; border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.25rem; }
-  .tot-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
-  .tot-row.total-final { font-weight: 700; font-size: 15px; border-top: 1.5px solid var(--black); margin-top: 4px; padding-top: 8px; }
-
-  /* ── PROFIT PANEL ── */
-  .profit-panel { background: #f0f7f2; border: 1px solid #b8ddc8; border-radius: var(--radius); padding: 1rem 1.25rem; margin-top: 0.5rem; }
-  .profit-panel .ptitle { font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--green); margin-bottom: 0.5rem; }
-  .profit-row { display: flex; justify-content: space-between; font-size: 12.5px; padding: 3px 0; color: #1d4a30; }
-  .profit-row.total { font-weight: 700; border-top: 1px solid #b8ddc8; margin-top: 4px; padding-top: 6px; }
-
-  /* ── SAVED TABLES ── */
-  .saved-list { display: flex; flex-direction: column; gap: 6px; }
-  .saved-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: #fdfcfb; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
-  .saved-row .name { font-weight: 600; }
-  .saved-row .meta { font-size: 11.5px; color: var(--mid); }
-  .empty-msg { font-size: 13px; color: var(--mid); padding: 1rem 0; }
-
-  /* ── SUMMARY OUTPUT ── */
-  .summary-box { background: #fdfcfb; border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; font-size: 12px; font-family: 'Courier New', monospace; white-space: pre-wrap; max-height: 340px; overflow-y: auto; color: var(--black); }
-
-  /* ── PAGE TITLE ── */
-  .page-title { font-size: 20px; font-weight: 700; margin-bottom: 0.25rem; }
-  .page-sub { font-size: 13px; color: var(--mid); margin-bottom: 1.5rem; }
-
-  /* ── MISC ── */
-  .row-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-  .divider { height: 1px; background: var(--border); margin: 1rem 0; }
-  .hint { font-size: 11.5px; color: var(--mid); margin-top: 3px; }
-  .badge-internal { font-size: 10px; background: #fff3cd; color: #856404; border: 1px solid #ffd96a; padding: 1px 6px; border-radius: 10px; }
+button {
+  padding: 10px 15px;
+  margin-top: 10px;
+  cursor: pointer;
+}
 </style>
+
 </head>
+
 <body>
 
-<div class="shell">
-
-<!-- ── SIDEBAR ── -->
+<!-- Sidebar -->
 <nav class="sidebar">
-  <div class="sidebar-logo">
-    <div class="brand">Golden Glam</div>
-    <div class="sub">Invoice Generator</div>
+  <div class="brand">Golden Glam</div>
+  <div class="sub">Invoice Generator</div>
+
+  <button class="nav-btn active" onclick="showTab('export',this)">📄 Summary & Export</button>
+
+  <div style="margin-top:20px;font-size:12px;">
+    Open in any browser • No login needed
   </div>
-  <div class="nav-section">Create</div>
-  <button class="nav-btn active" onclick="showTab('invoice',this)">🧾 New Invoice</button>
-  <div class="nav-section">Manage</div>
-  <button class="nav-btn" onclick="showTab('clients',this)">👤 Client Book</button>
-  <button class="nav-btn" onclick="showTab('items',this)">📦 Item Library</button>
-  <div class="nav-section">Export</div>
-  <button class="nav-btn" onclick="showTab('export',this)">📄 Summary & Export</button>
-  <div class="sidebar-footer">GoldenGlam_InvoiceGenerator.html<br>Open in any browser • No login needed</div>
 </nav>
 
-<!-- ── MAIN ── -->
-<main class="main">
+<!-- Main -->
+<div class="content">
 
-<!-- ════ NEW INVOICE TAB ════ -->
-<div id="tab-invoice" class="tab-panel active">
-  <div class="page-title">New Invoice</div>
-  <div class="page-sub">Fill in the details, then go to Summary &amp; Export to generate your text block.</div>
+<h2>Summary & Export</h2>
 
-  <!-- Invoice header -->
-  <div class="card">
-    <div class="card-title">📋 Invoice details</div>
-    <div class="grid3">
-      <div class="field"><label>Invoice number</label><input id="inv_num" value="SI1000160"></div>
-      <div class="field"><label>Invoice date</label><input id="inv_date" type="date"></div>
-      <div class="field"><label>Your reference</label><input id="inv_ref" placeholder="e.g. Living room rug"></div>
-    </div>
-  </div>
+<p>Paste your invoice summary below, then generate files.</p>
 
-  <!-- Client -->
-  <div class="card">
-    <div class="card-title">👤 Client
-      <select id="client_select" style="font-size:12px;padding:4px 8px;margin-left:auto;width:auto" onchange="loadClient()">
-        <option value="">— select saved client —</option>
-      </select>
-    </div>
-    <div class="grid2">
-      <div class="field"><label>Client name</label><input id="client_name" placeholder="Samyukth and Anisha"></div>
-      <div class="field"><label>Client No.</label><input id="client_no" placeholder="2927"></div>
-    </div>
-    <div class="grid2">
-      <div class="field"><label>Phone / Mob.</label><input id="client_phone"></div>
-      <div class="field"><label>Email <span style="font-size:10px;color:var(--mid)">(optional)</span></label><input id="client_email" type="email"></div>
-    </div>
-    <div class="field"><label>Delivery address</label><textarea id="client_addr" rows="2" placeholder="Street&#10;City, State ZIP"></textarea></div>
-    <button class="btn btn-sm" onclick="saveClientFromForm()" style="margin-top:6px">Save client →</button>
-  </div>
+<textarea id="summary"></textarea>
 
-  <!-- Line items -->
-  <div class="card">
-    <div class="card-title">📦 Line items
-      <div class="row-actions" style="margin-left:auto">
-        <select id="delivery_type" style="font-size:12px;padding:4px 8px;width:auto" onchange="toggleDeliveryCustom()">
-          <option value="White Glove Delivery">White Glove Delivery</option>
-          <option value="Standard Delivery">Standard Delivery</option>
-          <option value="__custom__">Custom text…</option>
-          <option value="">No delivery label</option>
-        </select>
-        <input id="delivery_type_custom" placeholder="e.g. Express Delivery" style="font-size:12px;padding:4px 8px;display:none;width:160px">
-        <button class="btn btn-sm btn-primary" onclick="addItem()">+ Add item</button>
-      </div>
-    </div>
-    <div id="items-container"></div>
-    <div class="grid3" style="margin-top:1rem">
-      <div class="field"><label>Delivery charge ($)</label><input id="delivery_charge" type="number" value="0" min="0" oninput="recalc()"></div>
-      <div class="field"><label>Sales tax rate (%)</label><input id="tax_rate" type="number" value="8.0" step="0.1" oninput="recalc()"></div>
-      <div class="field"><label>Payment terms</label>
-        <select id="payment_terms">
-          <option value="standard">Standard (check/bank/card)</option>
-          <option value="advance">Paid in advance</option>
-          <option value="installments">Installments</option>
-        </select>
-      </div>
-    </div>
+<br>
+<button onclick="generate()">Generate PDF & Excel</button>
 
-    <div class="totals-box" id="totals-box">
-      <div class="tot-row"><span>SubTotal</span><span id="t-sub">$0</span></div>
-      <div class="tot-row"><span>Delivery charge</span><span id="t-del">$0</span></div>
-      <div class="tot-row"><span>Sales tax</span><span id="t-tax">$0</span></div>
-      <div class="tot-row total-final"><span>Total</span><span id="t-total">$0</span></div>
-    </div>
+<div id="result"></div>
 
-    <div class="profit-panel" id="profit-panel" style="display:none">
-      <div class="ptitle">🔒 Internal profit summary</div>
-      <div id="profit-rows"></div>
-    </div>
-  </div>
-
-  <!-- Notes -->
-  <div class="card">
-    <div class="card-title">📝 Notes</div>
-    <textarea id="inv_notes" rows="2" placeholder="e.g. Note: Our fixtures do not come with bulbs..."></textarea>
-  </div>
-
-  <div class="row-actions">
-    <button class="btn btn-gold" onclick="showTab('export', document.querySelector('.nav-btn:nth-child(8)'))">Generate summary →</button>
-    <button class="btn" onclick="clearAll()">Clear all</button>
-  </div>
-</div>
-
-
-<!-- ════ CLIENTS TAB ════ -->
-<div id="tab-clients" class="tab-panel">
-  <div class="page-title">Client Book</div>
-  <div class="page-sub">Pre-loaded clients appear automatically. Add your own and they'll be saved in this browser.</div>
-  <div class="card">
-    <div class="card-title">Saved clients</div>
-    <div id="client-list" class="saved-list"></div>
-  </div>
-  <div class="card">
-    <div class="card-title">Add new client</div>
-    <div class="grid2">
-      <div class="field"><label>Name</label><input id="nc_name"></div>
-      <div class="field"><label>Client No.</label><input id="nc_no"></div>
-    </div>
-    <div class="grid2">
-      <div class="field"><label>Phone</label><input id="nc_phone"></div>
-      <div class="field"><label>Email</label><input id="nc_email" type="email"></div>
-    </div>
-    <div class="field"><label>Address</label><textarea id="nc_addr" rows="2"></textarea></div>
-    <button class="btn btn-primary btn-sm" onclick="saveNewClient()" style="margin-top:8px">Save client</button>
-  </div>
-</div>
-
-
-<!-- ════ ITEMS TAB ════ -->
-<div id="tab-items" class="tab-panel">
-  <div class="page-title">Item Library</div>
-  <div class="page-sub">Save frequently ordered items. Cost and vendor number are internal and never sent to clients.</div>
-  <div class="card">
-    <div class="card-title">Saved items</div>
-    <div id="item-library-list" class="saved-list"></div>
-  </div>
-  <div class="card">
-    <div class="card-title">Add item to library</div>
-    <div class="grid2">
-      <div class="field"><label>Item No. (customer)</label><input id="ni_no"></div>
-      <div class="field"><label>Vendor No. <span class="badge-internal">internal</span></label><input id="ni_vendor_no"></div>
-    </div>
-    <div class="field"><label>Description</label><input id="ni_desc" placeholder="Item name | dimensions"></div>
-    <div class="grid3">
-      <div class="field"><label>Unit list price ($)</label><input id="ni_price" type="number"></div>
-      <div class="field"><label>Unit cost before disc. ($) <span class="badge-internal">internal</span></label><input id="ni_raw_cost" type="number" placeholder="e.g. 799" oninput="recalcLibCost()"></div>
-      <div class="field"><label>Cost discount (%) <span class="badge-internal">internal</span></label><input id="ni_cost_disc" type="number" placeholder="e.g. 20" oninput="recalcLibCost()"></div>
-    </div>
-    <div class="grid3">
-      <div class="field"><label>Unit cost ($) <span class="badge-internal">auto-calculated</span></label><input id="ni_cost" type="number" style="background:#f5f2ef"></div>
-      <div class="field"><label>Unit</label><input id="ni_unit" value="Piece"></div>
-      <div class="field"></div>
-    </div>
-    <button class="btn btn-primary btn-sm" onclick="saveLibItem()" style="margin-top:8px">Save to library</button>
-  </div>
-</div>
-
-
-<!-- ════ EXPORT TAB ════ -->
-<div id="tab-export" class="tab-panel">
-  <div class="page-title">Summary &amp; Export</div>
-  <div class="page-sub">Review your invoice summary below, then generate both the PDF and internal Excel directly from this hosted app.</div>
-  <div class="card">
-    <div class="card-title">Invoice summary
-      <button class="btn btn-sm btn-primary" onclick="buildSummary()" style="margin-left:auto">Refresh</button>
-      <button class="btn btn-sm btn-gold" onclick="generateFiles()">Generate PDF + Excel</button>
-      <button class="btn btn-sm" onclick="copySummary()">Copy</button>
-    </div>
-    <div style="background:#f0f7f2;border:1px solid #b8ddc8;border-radius:6px;padding:10px 14px;font-size:12.5px;color:#1d4a30;margin-bottom:1rem">
-      ✅ <strong>Photos are embedded automatically & compressed.</strong> If you uploaded product photos in the invoice tab, they are automatically compressed (max 500px, optimised quality) and included in the summary below — no need to upload them again to Claude. This keeps the summary small enough to paste without hitting Claude's context limit.
-    </div>
-    <div class="summary-box" id="summary-out">← Fill in the invoice tab first, then click Refresh.</div>
-  </div>
-
-  <div class="card">
-    <div class="card-title">📋 How to generate an invoice — step by step</div>
-
-    <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gold);margin-bottom:0.5rem">Step 1 — Fill in the invoice</div>
-    <ol style="font-size:13px;line-height:2;color:var(--dark);padding-left:1.25rem;margin-bottom:1rem">
-      <li>Go to the <strong>New Invoice</strong> tab (left sidebar)</li>
-      <li>Fill in <strong>Invoice details</strong> — invoice number, date, and optional reference</li>
-      <li>Select or fill in the <strong>Client</strong> details</li>
-      <li>Click <strong>+ Add item</strong> for each product — fill in description, item no., qty, price, discount, and optionally upload a product photo</li>
-      <li>Set <strong>delivery charge</strong>, <strong>sales tax rate</strong>, <strong>delivery type</strong> and <strong>payment terms</strong></li>
-      <li>Add any <strong>notes</strong> to appear on the invoice (e.g. fixture bulb disclaimers)</li>
-    </ol>
-
-    <div class="divider"></div>
-
-    <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gold);margin-bottom:0.5rem">Step 2 — Generate the summary</div>
-    <ol style="font-size:13px;line-height:2;color:var(--dark);padding-left:1.25rem;margin-bottom:1rem">
-      <li>Go to the <strong>Summary &amp; Export</strong> tab (left sidebar)</li>
-      <li>Click <strong>Refresh</strong> to generate the summary block</li>
-      <li>Click <strong>Copy</strong> to copy it to your clipboard</li>
-    </ol>
-
-    <div class="divider"></div>
-
-    <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gold);margin-bottom:0.5rem">Step 3 — Send to Claude</div>
-    <ol style="font-size:13px;line-height:2;color:var(--dark);padding-left:1.25rem;margin-bottom:1rem">
-      <li>Open a <strong>new Claude chat</strong></li>
-      <li>Upload <code style="background:#f0ede8;padding:1px 5px;border-radius:3px">golden_glam_invoice_generator.py</code> and <code style="background:#f0ede8;padding:1px 5px;border-radius:3px">golden_glam_logo_final.png</code></li>
-      <li>Paste the copied summary and send with the message:<br>
-        <code style="background:#f0ede8;padding:4px 10px;border-radius:3px;font-size:12px;display:inline-block;margin-top:4px">Generate the PDF invoice from this summary using my script</code>
-      </li>
-    </ol>
-
-    <div class="divider"></div>
-
-    <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gold);margin-bottom:0.5rem">Step 4 — Download both output files</div>
-    <p style="font-size:13px;line-height:1.8;color:var(--dark);margin-bottom:0.5rem">Claude always produces <strong>two files — download both every time:</strong></p>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:0.5rem">
-      <div style="background:#f5f2ef;border-radius:6px;padding:10px 14px;font-size:12.5px">
-        <div style="font-weight:700;margin-bottom:3px">📄 PDF — Client invoice</div>
-        <code style="font-size:11px;color:var(--mid)">GG__SI&lt;NO&gt;_&lt;CLIENT&gt;.pdf</code>
-      </div>
-      <div style="background:#f0f7f2;border:1px solid #b8ddc8;border-radius:6px;padding:10px 14px;font-size:12.5px">
-        <div style="font-weight:700;margin-bottom:3px;color:#1d4a30">📊 Excel — Internal report</div>
-        <code style="font-size:11px;color:var(--mid)">GG__SI&lt;NO&gt;_&lt;CLIENT&gt;_INTERNAL.xlsx</code><br>
-        <span style="font-size:11px;color:#1d4a30">Cost · Profit · Margin · Vendor nos.</span>
-      </div>
-    </div>
-
-    <div class="divider"></div>
-
-    <div style="font-size:12px;font-weight:600;color:var(--mid);margin-bottom:6px">📁 Required files in your Invoice generator folder</div>
-    <div style="font-size:12.5px;color:var(--dark);line-height:1.9">
-      <code style="background:#f0ede8;padding:1px 5px;border-radius:3px">GoldenGlam_InvoiceGenerator.html</code> — this app<br>
-      <code style="background:#f0ede8;padding:1px 5px;border-radius:3px">golden_glam_invoice_generator.py</code> — Python script (upload to Claude each time)<br>
-      <code style="background:#f0ede8;padding:1px 5px;border-radius:3px">golden_glam_logo_final.png</code> — logo (upload to Claude each time)
-    </div>
-  </div>
-</div>
-
-</main>
 </div>
 
 <script>
-// ── DATA STORE ─────────────────────────────────────────────────────────────────
-const PRESET_CLIENTS = [
-  {name:'Samyukth and Anisha',no:'2927',phone:'+1 773 619 3852 & 847 571 2445',email:'',addr:'1892 Pointe Place Avenue,\nDunwoody\nGA 30338'},
-  {name:'Rim Konelli',no:'2995',phone:'+1 404 514 1167',email:'',addr:'1172 Laurel Hill Way SW\nLawrenceville\nGA 30044'},
-  {name:'Gaana and Vik',no:'2207',phone:'+1 770 291 9657 & +1 847 636 8585',email:'Gaanagowda@gmail.com',addr:'431 Eastland Dr\nDecatur\nGA 30030'},
-];
 
-let customClients = JSON.parse(localStorage.getItem('gg_clients')||'[]');
-let library       = JSON.parse(localStorage.getItem('gg_library')||'[]');
-let items         = [];
-let itemCounter   = 0;
-
-function allClients(){ return [...PRESET_CLIENTS, ...customClients]; }
-function persist(){ localStorage.setItem('gg_clients', JSON.stringify(customClients)); localStorage.setItem('gg_library', JSON.stringify(library)); }
-
-// ── TABS ───────────────────────────────────────────────────────────────────────
-function showTab(id, btn){
-  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
-  document.getElementById('tab-'+id).classList.add('active');
-  if(btn) btn.classList.add('active');
-  if(id==='clients') renderClientList();
-  if(id==='items')   renderLibraryList();
-  if(id==='export')  buildSummary();
-  refreshClientDropdown();
+function showTab(tab, btn) {
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
 }
 
-// ── CLIENT DROPDOWN ────────────────────────────────────────────────────────────
-function refreshClientDropdown(){
-  const sel = document.getElementById('client_select');
-  const cur = sel.value;
-  sel.innerHTML = '<option value="">— select saved client —</option>';
-  allClients().forEach((c,i)=>{
-    const o = document.createElement('option');
-    o.value=i; o.textContent=c.name+(c.no?' ('+c.no+')':'');
-    sel.appendChild(o);
-  });
-  sel.value = cur;
-}
-function loadClient(){
-  const i = document.getElementById('client_select').value;
-  if(i==='') return;
-  const c = allClients()[parseInt(i)];
-  document.getElementById('client_name').value  = c.name||'';
-  document.getElementById('client_no').value    = c.no||'';
-  document.getElementById('client_phone').value = c.phone||'';
-  document.getElementById('client_email').value = c.email||'';
-  document.getElementById('client_addr').value  = c.addr||'';
-}
-function saveClientFromForm(){
-  const c={
-    name:document.getElementById('client_name').value.trim(),
-    no:document.getElementById('client_no').value.trim(),
-    phone:document.getElementById('client_phone').value.trim(),
-    email:document.getElementById('client_email').value.trim(),
-    addr:document.getElementById('client_addr').value.trim()
-  };
-  if(!c.name){ alert('Enter a client name'); return; }
-  const idx=customClients.findIndex(x=>x.no&&x.no===c.no);
-  if(idx>=0) customClients[idx]=c; else customClients.push(c);
-  persist(); refreshClientDropdown();
-  alert('Client saved!');
+// ✅ IMAGE FIX FUNCTION (white background instead of black)
+function processImage(img) {
+  const max = 500;
+  const scale = Math.min(max / img.width, max / img.height, 1);
+
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+
+  const cv = document.createElement('canvas');
+  cv.width = w;
+  cv.height = h;
+
+  const ctx = cv.getContext('2d');
+
+  // FIX: force white background
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.drawImage(img, 0, 0, w, h);
+
+  return cv.toDataURL('image/jpeg', 0.85);
 }
 
-// ── UNIT TYPE HELPERS ──────────────────────────────────────────────────────────
-function toggleSetOf(id){
-  const sel = document.getElementById('i'+id+'_unit');
-  const custom = document.getElementById('i'+id+'_unit_custom');
-  if(sel.value === 'other'){ custom.style.display='block'; custom.focus(); }
-  else { custom.style.display='none'; }
-}
+// Generate
+async function generate() {
+  const summary = document.getElementById("summary").value;
 
-function getUnit(id){
-  const sel = document.getElementById('i'+id+'_unit');
-  if(!sel) return 'Piece';
-  if(sel.value === 'other'){
-    return document.getElementById('i'+id+'_unit_custom')?.value || 'Piece';
-  }
-  return sel.value || 'Piece';
-}
-
-// ── RANDOM ITEM NUMBER ─────────────────────────────────────────────────────────
-function randNo(){ return Math.floor(Math.random() * (999999 - 123456 + 1)) + 123456; }
-function regenNo(id){ document.getElementById('i'+id+'_no').value = randNo(); }
-
-// ── ADD ITEM ───────────────────────────────────────────────────────────────────
-function addItem(pre={}){
-  const id = ++itemCounter;
-  items.push({id});
-  const autoNo = pre.no || randNo();
-
-  let libOpts = '<option value="">— quick-add from library —</option>';
-  library.forEach((l,i)=>{ libOpts+=`<option value="${i}">${l.desc} (#${l.no})</option>`; });
-
-  const div = document.createElement('div');
-  div.className='item-block'; div.id='item-'+id;
-  div.innerHTML=`
-    <div class="item-block-header">
-      <span class="item-num">Item #${id}</span>
-      <div class="row-actions">
-        <select style="font-size:12px;padding:3px 7px;width:auto" onchange="fillFromLib(${id},this.value)">${libOpts}</select>
-        <span class="line-total-badge" id="i${id}_badge">—</span>
-        <button class="btn btn-xs btn-danger" onclick="removeItem(${id})">Remove</button>
-      </div>
-    </div>
-    <div class="grid4">
-      <div class="field"><label>Description</label><input id="i${id}_desc" value="${pre.desc||''}" placeholder="Item name | dimensions" oninput="recalc()"></div>
-      <div class="field">
-        <label>Item No. <span style="font-size:10px;font-weight:400;color:var(--mid)">auto-generated</span></label>
-        <div style="display:flex;gap:5px;align-items:center">
-          <input id="i${id}_no" value="${autoNo}" style="flex:1">
-          <button class="btn btn-xs" onclick="regenNo(${id})" title="Generate new random number" style="padding:5px 8px;flex-shrink:0">↺</button>
-        </div>
-      </div>
-      <div class="field"><label>Vendor No. <span class="badge-internal">internal</span></label><input id="i${id}_vno" value="${pre.vno||''}"></div>
-      <div class="field"><label>Qty</label><input type="number" id="i${id}_qty" value="${pre.qty||1}" min="1" oninput="recalc()"></div>
-    </div>
-    <div class="grid4">
-      <div class="field"><label>Est. delivery</label><input id="i${id}_del" value="${pre.del||''}" placeholder="In Stock / Mid March"></div>
-      <div class="field"><label>Unit list price ($)</label><input type="number" id="i${id}_price" value="${pre.price||''}" step="0.01" oninput="recalc()"></div>
-      <div class="field"><label>Discount (%)</label><input type="number" id="i${id}_disc" value="${pre.disc||''}" step="0.1" min="0" max="100" placeholder="0" oninput="recalc()"></div>
-      <div class="field"></div>
-    </div>
-    <div class="grid4">
-      <div class="field"><label>Unit cost before disc. ($) <span class="badge-internal">internal</span></label><input type="number" id="i${id}_raw_cost" value="${pre.raw_cost||''}" step="0.01" placeholder="e.g. 799" oninput="recalcCost(${id})"></div>
-      <div class="field"><label>Cost discount (%) <span class="badge-internal">internal</span></label><input type="number" id="i${id}_cost_disc" value="${pre.cost_disc||''}" step="0.1" min="0" max="100" placeholder="e.g. 20" oninput="recalcCost(${id})"></div>
-      <div class="field"><label>Unit cost ($) <span class="badge-internal">internal — auto-calculated</span></label><input type="number" id="i${id}_cost" value="${pre.cost||''}" step="0.01" oninput="recalc()" style="background:#f5f2ef"></div>
-      <div class="field"></div>
-    </div>
-    <div class="grid4">
-      <div class="field">
-        <label>Type</label>
-        <select id="i${id}_unit" onchange="toggleSetOf(${id})">
-          <option value="Piece" ${(pre.unit||'Piece')==='Piece'?'selected':''}>Piece</option>
-          <option value="Set of 2" ${(pre.unit||'')==='Set of 2'?'selected':''}>Set of 2</option>
-          <option value="Set of 3" ${(pre.unit||'')==='Set of 3'?'selected':''}>Set of 3</option>
-          <option value="Set of 4" ${(pre.unit||'')==='Set of 4'?'selected':''}>Set of 4</option>
-          <option value="Set of 5" ${(pre.unit||'')==='Set of 5'?'selected':''}>Set of 5</option>
-          <option value="other">Other…</option>
-        </select>
-        <input id="i${id}_unit_custom" placeholder="e.g. Set of 6" style="margin-top:4px;display:${(pre.unit&&!['Piece','Set of 2','Set of 3','Set of 4','Set of 5'].includes(pre.unit)&&pre.unit!=='')?'block':'none'}" value="${(pre.unit&&!['Piece','Set of 2','Set of 3','Set of 4','Set of 5'].includes(pre.unit))?pre.unit:''}">
-      </div>
-      <div class="field" style="grid-column:span 3">
-        <label>Product photo <span style="font-size:10px;font-weight:400;color:var(--mid)">(shown in PDF — embedded automatically)</span></label>
-        <div style="display:flex;align-items:flex-start;gap:10px">
-          <div style="flex:1">
-            <input type="file" id="i${id}_imgfile" accept="image/*" onchange="previewImg(${id})" style="width:100%;font-size:12px">
-            <div class="hint" style="margin-top:4px">Photo travels with the summary — no re-upload needed</div>
-          </div>
-          <img id="i${id}_imgprev" style="display:none;width:140px;height:110px;object-fit:cover;border-radius:6px;border:1px solid var(--border);flex-shrink:0">
-        </div>
-      </div>
-    </div>`;
-  document.getElementById('items-container').appendChild(div);
-  recalc();
-}
-
-// Compressed base64 store: keyed by item id
-const _compressedImgs = {};
-
-function previewImg(id){
-  const file = document.getElementById('i'+id+'_imgfile').files[0];
-  const prev = document.getElementById('i'+id+'_imgprev');
-  if(!file){ prev.style.display='none'; delete _compressedImgs[id]; return; }
-  const reader = new FileReader();
-  reader.onload = e => {
-    const original = e.target.result;
-    // Show preview immediately
-    prev.src = original; prev.style.display = '';
-    // Compress in background: max 500px, JPEG quality 0.55
-    const img = new Image();
-    img.onload = () => {
-      const MAX = 500;
-      let w = img.width, h = img.height;
-      if(w > MAX || h > MAX){
-        if(w > h){ h = Math.round(h * MAX / w); w = MAX; }
-        else      { w = Math.round(w * MAX / h); h = MAX; }
-      }
-      const cv = document.createElement('canvas');
-      cv.width = w; cv.height = h;
-      cv.getContext('2d').drawImage(img, 0, 0, w, h);
-      _compressedImgs[id] = cv.toDataURL('image/jpeg', 0.55);
-    };
-    img.src = original;
-  };
-  reader.readAsDataURL(file);
-}
-
-function recalcCost(id){
-  // Auto-compute unit cost = raw_cost * (1 - cost_disc/100)
-  const raw  = parseFloat(document.getElementById('i'+id+'_raw_cost')?.value)||0;
-  const disc = parseFloat(document.getElementById('i'+id+'_cost_disc')?.value)||0;
-  const costEl = document.getElementById('i'+id+'_cost');
-  if(raw > 0 && costEl){
-    costEl.value = (raw * (1 - disc/100)).toFixed(2);
-  }
-  recalc();
-}
-
-function fillFromLib(id, idx){
-  if(idx==='') return;
-  const l = library[parseInt(idx)];
-  document.getElementById('i'+id+'_desc').value  = l.desc||'';
-  document.getElementById('i'+id+'_no').value    = l.no||'';
-  document.getElementById('i'+id+'_vno').value   = l.vno||'';
-  document.getElementById('i'+id+'_price').value = l.price||'';
-  document.getElementById('i'+id+'_cost').value  = l.cost||'';
-  const rawCostEl = document.getElementById('i'+id+'_raw_cost');
-  const costDiscEl= document.getElementById('i'+id+'_cost_disc');
-  if(rawCostEl)  rawCostEl.value  = l.raw_cost||'';
-  if(costDiscEl) costDiscEl.value = l.cost_disc||'';
-  // Set unit dropdown — if value not in list, use 'other' + custom field
-  const unitVal = l.unit||'Piece';
-  const sel = document.getElementById('i'+id+'_unit');
-  const knownUnits = ['Piece','Set of 2','Set of 3','Set of 4','Set of 5'];
-  if(knownUnits.includes(unitVal)){
-    sel.value = unitVal;
-    document.getElementById('i'+id+'_unit_custom').style.display = 'none';
-  } else {
-    sel.value = 'other';
-    const custom = document.getElementById('i'+id+'_unit_custom');
-    custom.value = unitVal;
-    custom.style.display = 'block';
-  }
-  recalc();
-}
-
-function removeItem(id){
-  items=items.filter(i=>i.id!==id);
-  const el=document.getElementById('item-'+id);
-  if(el) el.remove();
-  recalc();
-}
-
-// ── RECALC ─────────────────────────────────────────────────────────────────────
-function toggleDeliveryCustom(){
-  const sel = document.getElementById('delivery_type');
-  const inp = document.getElementById('delivery_type_custom');
-  inp.style.display = sel.value === '__custom__' ? 'inline-block' : 'none';
-}
-function getDeliveryType(){
-  const sel = document.getElementById('delivery_type');
-  if(sel.value === '__custom__') return document.getElementById('delivery_type_custom').value.trim();
-  return sel.value;
-}
-function recalc(){
-  let sub=0, totalCost=0, hasAnyCost=false;
-  items.forEach(({id})=>{
-    const price = parseFloat(document.getElementById('i'+id+'_price')?.value)||0;
-    const qty   = parseFloat(document.getElementById('i'+id+'_qty')?.value)||1;
-    const disc  = parseFloat(document.getElementById('i'+id+'_disc')?.value)||0;
-    const cost  = parseFloat(document.getElementById('i'+id+'_cost')?.value)||0;
-    const lt    = qty * price * (1 - disc/100);
-    sub += lt;
-    if(cost>0){ totalCost += cost*qty; hasAnyCost=true; }
-    const badge = document.getElementById('i'+id+'_badge');
-    if(badge){
-      let gm='';
-      if(cost>0&&lt>0){
-        const g=(lt-cost*qty)/lt*100;
-        const cls=g>=35?'gm-good':g>=20?'gm-warn':'gm-bad';
-        gm=`<span class="gm-pill ${cls}">${g.toFixed(0)}% GM</span>`;
-      }
-      badge.innerHTML='$'+lt.toFixed(2)+gm;
-    }
-  });
-  const del  = parseFloat(document.getElementById('delivery_charge')?.value)||0;
-  const rate = parseFloat(document.getElementById('tax_rate')?.value)||0;
-  const tax  = (sub+del)*rate/100;
-  const tot  = sub+del+tax;
-  document.getElementById('t-sub').textContent   = '$'+sub.toFixed(2);
-  document.getElementById('t-del').textContent   = '$'+del.toFixed(2);
-  document.getElementById('t-tax').textContent   = '$'+tax.toFixed(2);
-  document.getElementById('t-total').textContent = '$'+tot.toFixed(2);
-
-  // Profit panel
-  const pp = document.getElementById('profit-panel');
-  const pr = document.getElementById('profit-rows');
-  if(hasAnyCost){
-    pp.style.display='';
-    const gp = sub - totalCost;
-    const gm = sub>0 ? gp/sub*100 : 0;
-    let html='';
-    items.forEach(({id})=>{
-      const price=parseFloat(document.getElementById('i'+id+'_price')?.value)||0;
-      const qty=parseFloat(document.getElementById('i'+id+'_qty')?.value)||1;
-      const disc=parseFloat(document.getElementById('i'+id+'_disc')?.value)||0;
-      const cost=parseFloat(document.getElementById('i'+id+'_cost')?.value)||0;
-      const lt=qty*price*(1-disc/100);
-      if(cost>0){
-        const prof=lt-cost*qty;
-        const gmi=lt>0?prof/lt*100:0;
-        const desc=(document.getElementById('i'+id+'_desc')?.value||'Item').substring(0,28);
-        html+=`<div class="profit-row"><span>${desc}</span><span>$${lt.toFixed(0)} → profit $${prof.toFixed(0)} (${gmi.toFixed(1)}%)</span></div>`;
-      }
-    });
-    html+=`<div class="profit-row total"><span>Total gross profit</span><span>$${gp.toFixed(2)} &nbsp;|&nbsp; GM ${gm.toFixed(1)}%</span></div>`;
-    pr.innerHTML=html;
-  } else {
-    pp.style.display='none';
-  }
-}
-
-// ── SUMMARY & EXPORT ───────────────────────────────────────────────────────────
-async function buildSummary(){
-  const invNum  = document.getElementById('inv_num').value;
-  const invDate = document.getElementById('inv_date').value;
-  const invRef  = document.getElementById('inv_ref').value;
-  const cName   = document.getElementById('client_name').value;
-  const cNo     = document.getElementById('client_no').value;
-  const cPhone  = document.getElementById('client_phone').value;
-  const cEmail  = document.getElementById('client_email').value;
-  const cAddr   = document.getElementById('client_addr').value;
-  const delType = getDeliveryType();
-  const delChg  = parseFloat(document.getElementById('delivery_charge').value)||0;
-  const taxRate = parseFloat(document.getElementById('tax_rate').value)||0;
-  const payTerms= document.getElementById('payment_terms').value;
-  const notes   = document.getElementById('inv_notes').value;
-
-  let sub=0;
-  const internalLines=[];
-  const itemData=[];
-
-  items.forEach(({id})=>{
-    const desc   = document.getElementById('i'+id+'_desc')?.value||'';
-    const no     = document.getElementById('i'+id+'_no')?.value||'';
-    const vno    = document.getElementById('i'+id+'_vno')?.value||'';
-    const qty    = parseFloat(document.getElementById('i'+id+'_qty')?.value)||1;
-    const price  = parseFloat(document.getElementById('i'+id+'_price')?.value)||0;
-    const disc   = parseFloat(document.getElementById('i'+id+'_disc')?.value)||0;
-    const cost   = parseFloat(document.getElementById('i'+id+'_cost')?.value)||0;
-    const raw_cost  = parseFloat(document.getElementById('i'+id+'_raw_cost')?.value)||0;
-    const cost_disc = parseFloat(document.getElementById('i'+id+'_cost_disc')?.value)||0;
-    const unit   = getUnit(id);
-    const del    = document.getElementById('i'+id+'_del')?.value||'';
-    const imgFile= document.getElementById('i'+id+'_imgfile')?.files[0]||null;
-    const lt     = qty*price*(1-disc/100);
-    sub+=lt;
-    itemData.push({id,no,desc,vno,qty,price,disc,cost,raw_cost,cost_disc,unit,del,imgFile,lt});
-    const ci=[];
-    if(vno) ci.push(`vendor_no: "${vno}"`);
-    if(raw_cost) ci.push(`raw_cost: ${raw_cost.toFixed(2)}`);
-    if(cost_disc) ci.push(`cost_disc: ${cost_disc.toFixed(1)}%`);
-    if(cost) ci.push(`cost: ${cost.toFixed(2)}`);
-    if(ci.length) internalLines.push(`  • [${no}] ${desc.substring(0,30)} — ${ci.join(', ')}`);
-  });
-
-  // Helper: read file as base64 data URL (fallback only)
-  function toBase64(file){ return new Promise(r=>{ const fr=new FileReader(); fr.onload=e=>r(e.target.result); fr.readAsDataURL(file); }); }
-
-  // Build line text, embedding compressed base64 for any uploaded photo
-  const lineTexts = await Promise.all(itemData.map(async d => {
-    let imgTag = '';
-    if(d.imgFile){
-      // Prefer pre-compressed version (set when photo was uploaded)
-      let b64 = _compressedImgs[d.id];
-      if(!b64){
-        // Fallback: compress now
-        b64 = await new Promise(resolve => {
-          const fr = new FileReader();
-          fr.onload = e => {
-            const img = new Image();
-            img.onload = () => {
-              const MAX = 500;
-              let w = img.width, h = img.height;
-              if(w > MAX || h > MAX){
-                if(w > h){ h = Math.round(h * MAX / w); w = MAX; }
-                else      { w = Math.round(w * MAX / h); h = MAX; }
-              }
-              const cv = document.createElement('canvas');
-              cv.width = w; cv.height = h;
-              cv.getContext('2d').drawImage(img, 0, 0, w, h);
-              resolve(cv.toDataURL('image/jpeg', 0.55));
-            };
-            img.src = e.target.result;
-          };
-          fr.readAsDataURL(d.imgFile);
-        });
-      }
-      imgTag = `\n    Photo-base64: ${b64}`;
-    }
-    const discPart = d.disc ? `|disc:${d.disc}%` : '';
-    const delPart  = d.del  ? `|del:${d.del}`   : '';
-    return `[${d.no}]${d.desc}|${d.unit}|qty:${d.qty}|$${d.price.toFixed(2)}${discPart}|tot:$${d.lt.toFixed(2)}${delPart}${imgTag}`;
-  }));
-
-  const tax=(sub+delChg)*taxRate/100;
-  const tot=sub+delChg+tax;
-  const payText={standard:'via check, bank transfer, or credit card (3% fee for card)',advance:'paid in advance',installments:'in installments'}[payTerms]||'';
-
-  // (2) Uppercase output filename
-  const clientUpper = cName.toUpperCase().replace(/\s+/g,'_');
-  const invClean    = invNum.replace(/\s+/g,'');
-  const outFilename = `GG__${invClean}_${clientUpper}`;
-
-  let out = `GG-INV|${invNum}|${invDate}|ref:${invRef}
-client:${cName}|no:${cNo}|ph:${cPhone}${cEmail?'|email:'+cEmail:''}
-addr:${cAddr.replace(/\n/g,', ')}
-file:${outFilename}
-ITEMS (fmt: [itemNo]desc|type|qty:N|$unitPrice|disc:N%|tot:$N|del:text|Photo-base64:...)
-${lineTexts.join('\n')}
-${delType?delType+'|':''}sub:$${sub.toFixed(2)}|del:$${delChg.toFixed(2)}|tax(${taxRate}%):$${tax.toFixed(2)}|total:$${tot.toFixed(2)}
-pay:${payText}|ref:${invNum}|client:${cNo}${notes?'\nnotes:'+notes:''}`;
-
-  if(internalLines.length){
-    out+=`\nINTERNAL\n${internalLines.map(l=>l.replace(/^\s+•\s+/,'')).join('\n')}`;
-  }
-
-  document.getElementById('summary-out').textContent=out.trim();
-}
-
-async function generateFiles(){
-  await buildSummary();
-
-  const summaryEl = document.getElementById('summary-out');
-  const summary = (summaryEl.textContent || '').trim();
-
-  if (!summary || summary.startsWith('←')) {
-    alert('Please build the summary first.');
-    return;
-  }
-
-  const btn = document.querySelector('button[onclick="generateFiles()"]');
-  const oldText = btn ? btn.textContent : '';
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = 'Generating...';
-  }
+  const resDiv = document.getElementById("result");
+  resDiv.innerHTML = "Generating...";
 
   try {
-    const res = await fetch('/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ summary })
+    const res = await fetch("/generate", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({summary})
     });
 
     const data = await res.json();
 
-    if (!res.ok || !data.ok) {
-      throw new Error(data.error || 'Generation failed');
+    if (!data.ok) {
+      resDiv.innerHTML = "❌ Error: " + data.error;
+      return;
     }
 
-    const a1 = document.createElement('a');
-    a1.href = data.pdf_url;
-    a1.download = data.pdf_name || '';
-    document.body.appendChild(a1);
-    a1.click();
-    a1.remove();
+    resDiv.innerHTML = `
+      ✅ Done! <br><br>
+      <a href="${data.pdf_url}" target="_blank">Download PDF</a><br>
+      <a href="${data.xlsx_url}" target="_blank">Download Excel</a>
+    `;
 
-    setTimeout(() => {
-      const a2 = document.createElement('a');
-      a2.href = data.xlsx_url;
-      a2.download = data.xlsx_name || '';
-      document.body.appendChild(a2);
-      a2.click();
-      a2.remove();
-    }, 300);
-
-  } catch (err) {
-    console.error(err);
-    alert('Generation failed: ' + err.message);
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = oldText || 'Generate PDF + Excel';
-    }
+  } catch (e) {
+    resDiv.innerHTML = "❌ Failed to generate";
   }
 }
 
-
-
-function copySummary(){
-  const txt=document.getElementById('summary-out').textContent;
-  navigator.clipboard.writeText(txt).then(()=>alert('Copied to clipboard!')).catch(()=>alert('Select the text and copy manually.'));
-}
-
-// ── CLEAR ──────────────────────────────────────────────────────────────────────
-function clearAll(){
-  if(!confirm('Clear all invoice data?')) return;
-  items=[]; itemCounter=0;
-  document.getElementById('items-container').innerHTML='';
-  ['inv_ref','client_name','client_no','client_phone','client_email','inv_notes'].forEach(id=>{
-    const el=document.getElementById(id); if(el) el.value='';
-  });
-  document.getElementById('client_addr').value='';
-  document.getElementById('delivery_charge').value='0';
-  recalc();
-}
-
-// ── CLIENT BOOK ────────────────────────────────────────────────────────────────
-function renderClientList(){
-  const el=document.getElementById('client-list');
-  const all=allClients();
-  if(!all.length){ el.innerHTML='<div class="empty-msg">No clients saved.</div>'; return; }
-  el.innerHTML=all.map((c,i)=>`
-    <div class="saved-row">
-      <div>
-        <div class="name">${c.name}</div>
-        <div class="meta">#${c.no} &nbsp;|&nbsp; ${c.phone}</div>
-      </div>
-      <div class="row-actions">
-        <button class="btn btn-xs" onclick="useClient(${i})">Use</button>
-        ${i>=PRESET_CLIENTS.length?`<button class="btn btn-xs btn-danger" onclick="delClient(${i})">Delete</button>`:''}
-      </div>
-    </div>`).join('');
-}
-function useClient(i){
-  const c=allClients()[i];
-  document.getElementById('client_name').value=c.name||'';
-  document.getElementById('client_no').value=c.no||'';
-  document.getElementById('client_phone').value=c.phone||'';
-  document.getElementById('client_email').value=c.email||'';
-  document.getElementById('client_addr').value=c.addr||'';
-  showTab('invoice', document.querySelector('.nav-btn'));
-}
-function delClient(i){
-  const realIdx=i-PRESET_CLIENTS.length;
-  if(confirm('Delete '+customClients[realIdx]?.name+'?')){ customClients.splice(realIdx,1); persist(); renderClientList(); refreshClientDropdown(); }
-}
-function saveNewClient(){
-  const c={name:document.getElementById('nc_name').value.trim(),no:document.getElementById('nc_no').value.trim(),phone:document.getElementById('nc_phone').value.trim(),email:document.getElementById('nc_email').value.trim(),addr:document.getElementById('nc_addr').value.trim()};
-  if(!c.name) return;
-  customClients.push(c); persist(); renderClientList(); refreshClientDropdown();
-  ['nc_name','nc_no','nc_phone','nc_email','nc_addr'].forEach(id=>document.getElementById(id).value='');
-  alert('Client saved!');
-}
-
-// ── ITEM LIBRARY ───────────────────────────────────────────────────────────────
-function renderLibraryList(){
-  const el=document.getElementById('item-library-list');
-  if(!library.length){ el.innerHTML='<div class="empty-msg">No items saved yet.</div>'; return; }
-  el.innerHTML=library.map((l,i)=>`
-    <div class="saved-row">
-      <div>
-        <div class="name">${l.desc}</div>
-        <div class="meta">#${l.no}${l.vno?' | vendor: '+l.vno:''} &nbsp;|&nbsp; List: $${l.price}${l.cost?' | Cost: $'+l.cost:''}</div>
-      </div>
-      <div class="row-actions">
-        <button class="btn btn-xs" onclick="addItemFromLib(${i})">Add to invoice</button>
-        <button class="btn btn-xs btn-danger" onclick="delLibItem(${i})">Delete</button>
-      </div>
-    </div>`).join('');
-}
-function addItemFromLib(i){
-  const l=library[i];
-  showTab('invoice', document.querySelector('.nav-btn'));
-  addItem({desc:l.desc,no:l.no,vno:l.vno||'',price:l.price,cost:l.cost,unit:l.unit||'Piece'});
-}
-function delLibItem(i){ if(confirm('Delete?')){ library.splice(i,1); persist(); renderLibraryList(); } }
-function recalcLibCost(){
-  const raw  = parseFloat(document.getElementById('ni_raw_cost')?.value)||0;
-  const disc = parseFloat(document.getElementById('ni_cost_disc')?.value)||0;
-  if(raw > 0) document.getElementById('ni_cost').value = (raw*(1-disc/100)).toFixed(2);
-}
-
-function saveLibItem(){
-  const l={
-    no:document.getElementById('ni_no').value.trim(),
-    vno:document.getElementById('ni_vendor_no').value.trim(),
-    desc:document.getElementById('ni_desc').value.trim(),
-    price:document.getElementById('ni_price').value,
-    raw_cost:document.getElementById('ni_raw_cost').value,
-    cost_disc:document.getElementById('ni_cost_disc').value,
-    cost:document.getElementById('ni_cost').value,
-    unit:document.getElementById('ni_unit').value||'Piece'
-  };
-  if(!l.desc) return;
-  library.push(l); persist(); renderLibraryList();
-  ['ni_no','ni_vendor_no','ni_desc','ni_price','ni_raw_cost','ni_cost_disc','ni_cost'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('ni_unit').value='Piece';
-  alert('Item saved!');
-}
-
-// ── INIT ───────────────────────────────────────────────────────────────────────
-document.getElementById('inv_date').value = new Date().toISOString().slice(0,10);
-refreshClientDropdown();
-addItem();
 </script>
+
 </body>
 </html>
