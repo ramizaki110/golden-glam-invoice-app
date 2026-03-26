@@ -127,6 +127,7 @@
   <div class="nav-section">Manage</div>
   <button class="nav-btn" onclick="showTab('clients',this)">👤 Client Book</button>
   <button class="nav-btn" onclick="showTab('items',this)">📦 Item Library</button>
+  <button class="nav-btn" onclick="showTab('vendors',this)">🏭 Vendor Book</button>
   <div class="nav-section">Export</div>
   <button class="nav-btn" onclick="showTab('export',this)">📄 Summary & Export</button>
   <div class="sidebar-footer">GoldenGlam_InvoiceGenerator.html<br>Open in any browser • No login needed</div>
@@ -216,7 +217,7 @@
   </div>
 
   <div class="row-actions">
-    <button class="btn btn-gold" onclick="showTab('export', document.querySelector('.nav-btn:nth-child(8)'))">Generate summary →</button>
+    <button class="btn btn-gold" onclick="showTab('export', document.querySelector('.nav-btn:nth-child(8)'))">Summary &amp; Export →</button>
     <button class="btn" onclick="clearAll()">Clear all</button>
   </div>
 </div>
@@ -276,6 +277,25 @@
 </div>
 
 
+<!-- ════ VENDOR TAB ════ -->
+<div id="tab-vendors" class="tab-panel">
+  <div class="page-title">Vendor Book</div>
+  <div class="page-sub">Save vendor names so they appear in the dropdown on each line item. Vendor names appear in the internal Excel report.</div>
+  <div class="card">
+    <div class="card-title">Saved vendors</div>
+    <div id="vendor-list" class="saved-list"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Add new vendor</div>
+    <div class="grid2">
+      <div class="field"><label>Vendor name</label><input id="nv_name" placeholder="e.g. Uttermost"></div>
+      <div class="field"><label>Short code <span style="font-size:10px;font-weight:400;color:var(--mid)">(optional)</span></label><input id="nv_code" placeholder="e.g. UTT"></div>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="saveNewVendor()" style="margin-top:8px">Save vendor</button>
+  </div>
+</div>
+
+
 <!-- ════ EXPORT TAB ════ -->
 <div id="tab-export" class="tab-panel">
   <div class="page-title">Summary &amp; Export</div>
@@ -293,61 +313,62 @@
   </div>
 
   <div class="card">
-    <div class="card-title">📋 How to generate an invoice — step by step</div>
+    <div class="card-title">📋 How to generate an invoice</div>
 
+    <!-- Step 1 — always the same -->
     <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gold);margin-bottom:0.5rem">Step 1 — Fill in the invoice</div>
     <ol style="font-size:13px;line-height:2;color:var(--dark);padding-left:1.25rem;margin-bottom:1rem">
-      <li>Go to the <strong>New Invoice</strong> tab (left sidebar)</li>
-      <li>Fill in <strong>Invoice details</strong> — invoice number, date, and optional reference</li>
-      <li>Select or fill in the <strong>Client</strong> details</li>
-      <li>Click <strong>+ Add item</strong> for each product — fill in description, item no., qty, price, discount, and optionally upload a product photo</li>
-      <li>Set <strong>delivery charge</strong>, <strong>sales tax rate</strong>, <strong>delivery type</strong> and <strong>payment terms</strong></li>
-      <li>Add any <strong>notes</strong> to appear on the invoice (e.g. fixture bulb disclaimers)</li>
+      <li>Go to the <strong>New Invoice</strong> tab — fill in invoice number, date, and optional reference</li>
+      <li>Select or fill in <strong>Client</strong> details</li>
+      <li>Click <strong>+ Add item</strong> for each product — description, item no., vendor, qty, price, discount, and optional photo</li>
+      <li>Set delivery charge, sales tax, delivery type, and payment terms</li>
+      <li>Add any notes to appear on the invoice</li>
     </ol>
 
     <div class="divider"></div>
 
-    <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gold);margin-bottom:0.5rem">Step 2 — Generate the summary</div>
-    <ol style="font-size:13px;line-height:2;color:var(--dark);padding-left:1.25rem;margin-bottom:1rem">
-      <li>Go to the <strong>Summary &amp; Export</strong> tab (left sidebar)</li>
-      <li>Click <strong>Refresh</strong> to generate the summary block</li>
-      <li>Click <strong>Copy</strong> to copy it to your clipboard</li>
-    </ol>
+    <!-- Two options -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
 
-    <div class="divider"></div>
-
-    <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gold);margin-bottom:0.5rem">Step 3 — Send to Claude</div>
-    <ol style="font-size:13px;line-height:2;color:var(--dark);padding-left:1.25rem;margin-bottom:1rem">
-      <li>Open a <strong>new Claude chat</strong></li>
-      <li>Upload <code style="background:#f0ede8;padding:1px 5px;border-radius:3px">golden_glam_invoice_generator.py</code> and <code style="background:#f0ede8;padding:1px 5px;border-radius:3px">golden_glam_logo_final.png</code></li>
-      <li>Paste the copied summary and send with the message:<br>
-        <code style="background:#f0ede8;padding:4px 10px;border-radius:3px;font-size:12px;display:inline-block;margin-top:4px">Generate the PDF invoice from this summary using my script</code>
-      </li>
-    </ol>
-
-    <div class="divider"></div>
-
-    <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gold);margin-bottom:0.5rem">Step 4 — Download both output files</div>
-    <p style="font-size:13px;line-height:1.8;color:var(--dark);margin-bottom:0.5rem">Claude always produces <strong>two files — download both every time:</strong></p>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:0.5rem">
-      <div style="background:#f5f2ef;border-radius:6px;padding:10px 14px;font-size:12.5px">
-        <div style="font-weight:700;margin-bottom:3px">📄 PDF — Client invoice</div>
-        <code style="font-size:11px;color:var(--mid)">GG__SI&lt;NO&gt;_&lt;CLIENT&gt;.pdf</code>
+      <!-- Option A: Direct from app -->
+      <div style="background:#f0f7f2;border:1px solid #b8ddc8;border-radius:8px;padding:1rem">
+        <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#1d6a3e;margin-bottom:0.6rem">⚡ Option A — Direct from this app</div>
+        <ol style="font-size:13px;line-height:2;color:var(--dark);padding-left:1.25rem;margin-bottom:0.75rem">
+          <li>Come to the <strong>Summary &amp; Export</strong> tab</li>
+          <li>Click <strong>Refresh</strong> to build the summary</li>
+          <li>Click <strong>Generate PDF + Excel</strong></li>
+          <li>Both files download automatically</li>
+        </ol>
+        <div style="font-size:11.5px;color:#1d4a30">✅ Fastest — no Claude needed</div>
       </div>
-      <div style="background:#f0f7f2;border:1px solid #b8ddc8;border-radius:6px;padding:10px 14px;font-size:12.5px">
-        <div style="font-weight:700;margin-bottom:3px;color:#1d4a30">📊 Excel — Internal report</div>
-        <code style="font-size:11px;color:var(--mid)">GG__SI&lt;NO&gt;_&lt;CLIENT&gt;_INTERNAL.xlsx</code><br>
-        <span style="font-size:11px;color:#1d4a30">Cost · Profit · Margin · Vendor nos.</span>
+
+      <!-- Option B: Via Claude -->
+      <div style="background:#f5f2ef;border:1px solid var(--border);border-radius:8px;padding:1rem">
+        <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gold);margin-bottom:0.6rem">🤖 Option B — Via Claude</div>
+        <ol style="font-size:13px;line-height:2;color:var(--dark);padding-left:1.25rem;margin-bottom:0.75rem">
+          <li>Click <strong>Refresh</strong> then <strong>Copy</strong></li>
+          <li>Open a new <strong>Claude chat</strong></li>
+          <li>Upload <code style="background:#ede9e3;padding:1px 4px;border-radius:3px;font-size:11px">golden_glam_invoice_generator.py</code> + <code style="background:#ede9e3;padding:1px 4px;border-radius:3px;font-size:11px">golden_glam_logo_final.png</code></li>
+          <li>Paste the summary and send:<br><code style="background:#ede9e3;padding:2px 6px;border-radius:3px;font-size:11px;display:inline-block;margin-top:2px">Generate the PDF invoice from this summary using my script</code></li>
+          <li>Download both files Claude returns</li>
+        </ol>
+        <div style="font-size:11.5px;color:var(--mid)">Use when the hosted app is unavailable</div>
       </div>
+
     </div>
 
     <div class="divider"></div>
 
-    <div style="font-size:12px;font-weight:600;color:var(--mid);margin-bottom:6px">📁 Required files in your Invoice generator folder</div>
-    <div style="font-size:12.5px;color:var(--dark);line-height:1.9">
-      <code style="background:#f0ede8;padding:1px 5px;border-radius:3px">GoldenGlam_InvoiceGenerator.html</code> — this app<br>
-      <code style="background:#f0ede8;padding:1px 5px;border-radius:3px">golden_glam_invoice_generator.py</code> — Python script (upload to Claude each time)<br>
-      <code style="background:#f0ede8;padding:1px 5px;border-radius:3px">golden_glam_logo_final.png</code> — logo (upload to Claude each time)
+    <div style="font-size:12px;font-weight:600;color:var(--mid);margin-bottom:6px">📄 Output files — always two, every time</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div style="background:#fdfcfb;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:12.5px">
+        <div style="font-weight:700;margin-bottom:2px">📄 Client PDF</div>
+        <code style="font-size:11px;color:var(--mid)">GG__SI&lt;NO&gt;_&lt;CLIENT&gt;.pdf</code>
+      </div>
+      <div style="background:#fdfcfb;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:12.5px">
+        <div style="font-weight:700;margin-bottom:2px">📊 Internal Excel</div>
+        <code style="font-size:11px;color:var(--mid)">GG__SI&lt;NO&gt;_&lt;CLIENT&gt;_INTERNAL.xlsx</code>
+      </div>
     </div>
   </div>
 </div>
@@ -365,11 +386,12 @@ const PRESET_CLIENTS = [
 
 let customClients = JSON.parse(localStorage.getItem('gg_clients')||'[]');
 let library       = JSON.parse(localStorage.getItem('gg_library')||'[]');
+let vendors       = JSON.parse(localStorage.getItem('gg_vendors')||'[]');
 let items         = [];
 let itemCounter   = 0;
 
 function allClients(){ return [...PRESET_CLIENTS, ...customClients]; }
-function persist(){ localStorage.setItem('gg_clients', JSON.stringify(customClients)); localStorage.setItem('gg_library', JSON.stringify(library)); }
+function persist(){ localStorage.setItem('gg_clients', JSON.stringify(customClients)); localStorage.setItem('gg_library', JSON.stringify(library)); localStorage.setItem('gg_vendors', JSON.stringify(vendors)); }
 
 // ── TABS ───────────────────────────────────────────────────────────────────────
 function showTab(id, btn){
@@ -379,6 +401,7 @@ function showTab(id, btn){
   if(btn) btn.classList.add('active');
   if(id==='clients') renderClientList();
   if(id==='items')   renderLibraryList();
+  if(id==='vendors') renderVendorList();
   if(id==='export')  buildSummary();
   refreshClientDropdown();
 }
@@ -470,7 +493,13 @@ function addItem(pre={}){
           <button class="btn btn-xs" onclick="regenNo(${id})" title="Generate new random number" style="padding:5px 8px;flex-shrink:0">↺</button>
         </div>
       </div>
-      <div class="field"><label>Vendor No. <span class="badge-internal">internal</span></label><input id="i${id}_vno" value="${pre.vno||''}"></div>
+      <div class="field">
+        <label>Vendor <span class="badge-internal">internal</span></label>
+        <select id="i${id}_vno_sel" style="margin-bottom:3px" onchange="applyVendorSel(${id})">
+          <option value="">— select vendor —</option>
+        </select>
+        <input id="i${id}_vno" value="${pre.vno||''}" placeholder="or type vendor name">
+      </div>
       <div class="field"><label>Qty</label><input type="number" id="i${id}_qty" value="${pre.qty||1}" min="1" oninput="recalc()"></div>
     </div>
     <div class="grid4">
@@ -510,6 +539,7 @@ function addItem(pre={}){
       </div>
     </div>`;
   document.getElementById('items-container').appendChild(div);
+  refreshVendorDropdowns();
   recalc();
 }
 
@@ -927,6 +957,46 @@ function saveLibItem(){
   ['ni_no','ni_vendor_no','ni_desc','ni_price','ni_raw_cost','ni_cost_disc','ni_cost'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('ni_unit').value='Piece';
   alert('Item saved!');
+}
+
+
+// ── VENDOR BOOK ────────────────────────────────────────────────────────────────
+function renderVendorList(){
+  const el = document.getElementById('vendor-list');
+  if(!vendors.length){ el.innerHTML='<div class="empty-msg">No vendors saved yet.</div>'; return; }
+  el.innerHTML = vendors.map((v,i)=>`
+    <div class="saved-row">
+      <div>
+        <div class="name">${v.name}</div>
+        ${v.code?'<div class="meta">Code: '+v.code+'</div>':''}
+      </div>
+      <button class="btn btn-xs btn-danger" onclick="delVendor(${i})">Delete</button>
+    </div>`).join('');
+}
+function saveNewVendor(){
+  const name = document.getElementById('nv_name').value.trim();
+  if(!name){ alert('Enter a vendor name'); return; }
+  const code = document.getElementById('nv_code').value.trim();
+  vendors.push({name, code});
+  persist(); renderVendorList(); refreshVendorDropdowns();
+  document.getElementById('nv_name').value='';
+  document.getElementById('nv_code').value='';
+  alert('Vendor saved!');
+}
+function delVendor(i){
+  if(confirm('Delete '+vendors[i].name+'?')){ vendors.splice(i,1); persist(); renderVendorList(); refreshVendorDropdowns(); }
+}
+function refreshVendorDropdowns(){
+  document.querySelectorAll('select[id^="i"][id$="_vno_sel"]').forEach(sel => {
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">— select vendor —</option>' +
+      vendors.map(v=>`<option value="${v.name}">${v.name}${v.code?' ('+v.code+')':''}</option>`).join('');
+    sel.value = cur;
+  });
+}
+function applyVendorSel(id){
+  const sel = document.getElementById('i'+id+'_vno_sel');
+  if(sel.value) document.getElementById('i'+id+'_vno').value = sel.value;
 }
 
 // ── INIT ───────────────────────────────────────────────────────────────────────
