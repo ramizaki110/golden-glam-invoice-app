@@ -683,7 +683,12 @@ def draw_invoice(inv, output_path):
             photo_cell,
         ])
 
-    item_tbl = Table(rows, colWidths=ITEM_COL_WIDTHS)
+    # Calculate row heights: fixed header, bounded data rows
+    HDR_H   = 0.45 * inch
+    DATA_H  = 0.85 * inch   # max row height — prevents runaway cell growth
+    row_heights = [HDR_H] + [DATA_H] * (len(rows) - 1)
+    item_tbl = Table(rows, colWidths=ITEM_COL_WIDTHS,
+                     rowHeights=row_heights, repeatRows=1)
     item_tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), BLACK),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
