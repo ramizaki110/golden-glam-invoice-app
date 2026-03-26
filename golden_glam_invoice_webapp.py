@@ -200,8 +200,6 @@ def generate_from_summary(summary_text: str) -> tuple[Path, Path]:
     pdf_path = OUTPUT_DIR / f"{safe_name}.pdf"
     xlsx_path = draw_invoice(invoice, str(pdf_path))
     xlsx_path = Path(xlsx_path)
-    if xlsx_path.exists():
-        reformat_excel_no_decimals(xlsx_path)
     return pdf_path, xlsx_path
 
 
