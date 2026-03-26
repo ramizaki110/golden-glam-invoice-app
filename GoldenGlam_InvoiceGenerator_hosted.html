@@ -269,6 +269,7 @@
       <div class="field"><label>Vendor No. <span class="badge-internal">internal</span></label><input id="ni_vendor_no" placeholder="e.g. UTT-34343"></div>
     </div>
     <div class="field"><label>Description</label><input id="ni_desc" placeholder="Item name | dimensions"></div>
+    <div class="field"><label>Est. delivery</label><input id="ni_del" placeholder="e.g. In Stock / Mid March"></div>
     <div class="grid3">
       <div class="field"><label>Unit list price ($)</label><input id="ni_price" type="number"></div>
       <div class="field"><label>Unit cost before disc. ($) <span class="badge-internal">internal</span></label><input id="ni_raw_cost" type="number" placeholder="e.g. 799" oninput="recalcLibCost()"></div>
@@ -276,7 +277,18 @@
     </div>
     <div class="grid3">
       <div class="field"><label>Unit cost ($) <span class="badge-internal">auto-calculated</span></label><input id="ni_cost" type="number" style="background:#f5f2ef"></div>
-      <div class="field"><label>Unit</label><input id="ni_unit" value="Piece"></div>
+      <div class="field">
+        <label>Type</label>
+        <select id="ni_unit" onchange="toggleLibSetOf()">
+          <option value="Piece">Piece</option>
+          <option value="Set of 2">Set of 2</option>
+          <option value="Set of 3">Set of 3</option>
+          <option value="Set of 4">Set of 4</option>
+          <option value="Set of 5">Set of 5</option>
+          <option value="other">Other…</option>
+        </select>
+        <input id="ni_unit_custom" placeholder="e.g. Set of 6" style="margin-top:4px;display:none">
+      </div>
       <div class="field"></div>
     </div>
     <button class="btn btn-primary btn-sm" onclick="saveLibItem()" style="margin-top:8px">Save to library</button>
@@ -406,6 +418,7 @@ function showTab(id, btn){
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('tab-'+id).classList.add('active');
   if(btn) btn.classList.add('active');
+  if(id==='invoice')  refreshLibraryDropdowns();
   if(id==='clients') renderClientList();
   if(id==='items')   renderLibraryList();
   if(id==='vendors') renderVendorList();
@@ -478,8 +491,8 @@ function addItem(pre={}){
   items.push({id});
   const autoNo = pre.no || randNo();
 
-  let libOpts = '<option value="">— quick-add from library —</option>';
-  library.forEach((l,i)=>{ libOpts+=`<option value="${i}">${l.desc} (#${l.no})</option>`; });
+  // Library dropdown is populated by refreshLibraryDropdowns() after DOM insert
+  const libOpts = '<option value="">— quick-add from library —</option>';
 
   const div = document.createElement('div');
   div.className='item-block'; div.id='item-'+id;
@@ -487,7 +500,7 @@ function addItem(pre={}){
     <div class="item-block-header">
       <span class="item-num">Item #${id}</span>
       <div class="row-actions">
-        <select style="font-size:12px;padding:3px 7px;width:auto" onchange="fillFromLib(${id},this.value)">${libOpts}</select>
+        <select id="lib_sel_${id}" style="font-size:12px;padding:3px 7px;width:auto" onchange="fillFromLib(${id},this.value)">${libOpts}</select>
         <span class="line-total-badge" id="i${id}_badge">—</span>
         <button class="btn btn-xs btn-danger" onclick="removeItem(${id})">Remove</button>
       </div>
@@ -549,6 +562,7 @@ function addItem(pre={}){
     </div>`;
   document.getElementById('items-container').appendChild(div);
   refreshVendorDropdowns();
+  refreshLibraryDropdowns();
   recalc();
 }
 
@@ -945,9 +959,9 @@ function renderLibraryList(){
 function addItemFromLib(i){
   const l=library[i];
   showTab('invoice', document.querySelector('.nav-btn'));
-  addItem({desc:l.desc,no:l.no,vendor:l.vendor||'',vno:l.vno||'',price:l.price,cost:l.cost,unit:l.unit||'Piece'});
+  addItem({desc:l.desc,no:l.no,vendor:l.vendor||'',vno:l.vno||'',price:l.price,raw_cost:l.raw_cost||'',cost_disc:l.cost_disc||'',cost:l.cost,unit:l.unit||'Piece',del:l.del||''});
 }
-function delLibItem(i){ if(confirm('Delete?')){ library.splice(i,1); persist(); renderLibraryList(); } }
+function delLibItem(i){ if(confirm('Delete?')){ library.splice(i,1); persist(); renderLibraryList(); refreshLibraryDropdowns(); } }
 function recalcLibCost(){
   const raw  = parseFloat(document.getElementById('ni_raw_cost')?.value)||0;
   const disc = parseFloat(document.getElementById('ni_cost_disc')?.value)||0;
@@ -964,11 +978,14 @@ function saveLibItem(){
     raw_cost:document.getElementById('ni_raw_cost').value,
     cost_disc:document.getElementById('ni_cost_disc').value,
     cost:document.getElementById('ni_cost').value,
-    unit:document.getElementById('ni_unit').value||'Piece'
+    del:document.getElementById('ni_del')?.value.trim()||'',
+    unit:getLibUnit()
   };
   if(!l.desc) return;
-  library.push(l); persist(); renderLibraryList();
-  ['ni_no','ni_vendor_name','ni_vendor_no','ni_desc','ni_price','ni_raw_cost','ni_cost_disc','ni_cost'].forEach(id=>document.getElementById(id).value='');
+  library.push(l); persist(); renderLibraryList(); refreshLibraryDropdowns();
+  ['ni_no','ni_vendor_name','ni_vendor_no','ni_desc','ni_del','ni_price','ni_raw_cost','ni_cost_disc','ni_cost','ni_unit_custom'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  const niUnit = document.getElementById('ni_unit'); if(niUnit) niUnit.value='Piece';
+  toggleLibSetOf();
   document.getElementById('ni_unit').value='Piece';
   alert('Item saved!');
 }
@@ -999,6 +1016,28 @@ function saveNewVendor(){
 }
 function delVendor(i){
   if(confirm('Delete '+vendors[i].name+'?')){ vendors.splice(i,1); persist(); renderVendorList(); refreshVendorDropdowns(); }
+}
+function refreshLibraryDropdowns(){
+  // Re-populate every quick-add dropdown in the invoice with current library
+  document.querySelectorAll('select[id^="lib_sel_"]').forEach(sel => {
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">— quick-add from library —</option>' +
+      library.map((l,i)=>`<option value="${i}">${l.desc}${l.no?' (#'+l.no+')':''}</option>`).join('');
+    sel.value = cur;
+  });
+}
+function toggleLibSetOf(){
+  const sel = document.getElementById('ni_unit');
+  const custom = document.getElementById('ni_unit_custom');
+  if(sel && custom) custom.style.display = sel.value === 'other' ? 'block' : 'none';
+}
+function getLibUnit(){
+  const sel = document.getElementById('ni_unit');
+  if(!sel) return 'Piece';
+  if(sel.value === 'other'){
+    return document.getElementById('ni_unit_custom')?.value || 'Piece';
+  }
+  return sel.value || 'Piece';
 }
 function refreshVendorDropdowns(){
   // Refresh line item vendor dropdowns
