@@ -99,7 +99,12 @@ function showTab(tab, btn) {
   btn.classList.add('active');
 }
 
-// ✅ IMAGE FIX FUNCTION (white background instead of black)
+/*
+ ✅ IMAGE PROCESSING FIX
+ - Keeps transparency (no black background)
+ - Uses PNG instead of JPEG
+ - DOES NOT force white background
+*/
 function processImage(img) {
   const max = 500;
   const scale = Math.min(max / img.width, max / img.height, 1);
@@ -113,9 +118,8 @@ function processImage(img) {
 
   const ctx = cv.getContext('2d');
 
-  // FIX: force white background
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, w, h);
+  // IMPORTANT: clear instead of filling (preserves transparency)
+  ctx.clearRect(0, 0, w, h);
 
   ctx.drawImage(img, 0, 0, w, h);
 
