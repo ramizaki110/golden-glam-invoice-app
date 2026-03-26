@@ -583,6 +583,12 @@ function addItem(pre={}){
   document.getElementById('items-container').appendChild(div);
   refreshVendorDropdowns();
   refreshLibraryDropdowns();
+  // If a photo was passed in (e.g. loading from invoice library), restore it immediately
+  if(pre.photo){
+    _compressedImgs[id] = pre.photo;
+    const prev = document.getElementById('i'+id+'_imgprev');
+    if(prev){ prev.src = pre.photo; prev.style.display = ''; }
+  }
   recalc();
 }
 
@@ -1172,15 +1178,8 @@ function loadInvoice(idx){
       no: li.no, desc: li.desc, vendor: li.vendor, vno: li.vno,
       qty: li.qty, price: li.price, disc: li.disc,
       raw_cost: li.raw_cost, cost_disc: li.cost_disc, cost: li.cost,
-      del: li.del, unit: li.unit,
+      del: li.del, unit: li.unit, photo: li.photo||'',
     });
-    // Restore photo preview if saved
-    if(li.photo){
-      const lastId = itemCounter;
-      _compressedImgs[lastId] = li.photo;
-      const prev = document.getElementById('i'+lastId+'_imgprev');
-      if(prev){ prev.src=li.photo; prev.style.display=''; }
-    }
   });
   refreshClientDropdown();
   recalc();
