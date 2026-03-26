@@ -11,6 +11,7 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
+from reportlab.pdfgen import canvas
 from reportlab.platypus import (
     SimpleDocTemplate,
     Table,
@@ -148,40 +149,79 @@ def _decode_image(image_value: str) -> str | None:
         return None
 
 
+class _NumberedCanvas(canvas.Canvas):
+    """Two-pass canvas that knows the total page count."""
+    def __init__(self, *args, **kwargs):
+        canvas.Canvas.__init__(self, *args, **kwargs)
+        self._saved_page_states = []
+
+    def showPage(self):
+        self._saved_page_states.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self):
+        total = len(self._saved_page_states)
+        for state in self._saved_page_states:
+            self.__dict__.update(state)
+            self._draw_footer_and_header(total)
+            canvas.Canvas.showPage(self)
+        canvas.Canvas.save(self)
+
+    def _draw_footer_and_header(self, total_pages):
+        inv = getattr(self._doc, "_gg_invoice", {}) if hasattr(self, "_doc") else {}
+        print_date = fmt_date_for_footer(inv.get("date", ""))
+        page_num = self.getPageNumber()
+
+        self.saveState()
+
+        # ── Header: logo on every page, same size and position ──────────────
+        if os.path.exists(str(LOGO_PATH)):
+            logo_w, logo_h = 2.85 * inch, 1.08 * inch
+            self.drawImage(
+                str(LOGO_PATH),
+                (letter[0] - logo_w) / 2,
+                letter[1] - 0.3 * inch - logo_h,
+                width=logo_w, height=logo_h,
+                mask="auto", preserveAspectRatio=True,
+            )
+
+        # ── Footer ─────────────────────────────────────────────────────────────
+        y_line = 0.70 * inch
+        self.setStrokeColor(BORDER)
+        self.setLineWidth(0.6)
+        self.line(0.28 * inch, y_line, letter[0] - 0.28 * inch, y_line)
+
+        self.setFont("Helvetica", 7)
+        self.setFillColor(MID)
+        self.drawString(0.28 * inch, y_line - 0.16 * inch, f"Print date: {print_date}")
+        self.drawRightString(
+            letter[0] - 0.28 * inch,
+            y_line - 0.16 * inch,
+            f"Page {page_num} of {total_pages}",
+        )
+
+        self.setFont("Helvetica-Bold", 7)
+        self.setFillColor(BLACK)
+        self.drawCentredString(letter[0] / 2, 0.46 * inch, "GOLDEN GLAM INTERIORS LLC")
+
+        self.setFont("Helvetica", 6)
+        self.setFillColor(DARK)
+        self.drawCentredString(
+            letter[0] / 2,
+            0.32 * inch,
+            "Address: 828 Highland Ln Ne, Apt. 2204, Atlanta, GA 30306  |  Phone: 770-375-7343",
+        )
+        self.drawCentredString(
+            letter[0] / 2,
+            0.20 * inch,
+            "Bank #: 930283558  |  Routing: 061092387  |  Zelle: rana_salah@goldenglam.nl  |  E-mail: sales@goldenglam.nl",
+        )
+        self.restoreState()
+
+
 def _footer(canvas, doc):
-    inv = getattr(doc, "_gg_invoice", {})
-    print_date = fmt_date_for_footer(inv.get("date", ""))
-    page_num = canvas.getPageNumber()
-
-    canvas.saveState()
-    y_line = 0.70 * inch
-
-    canvas.setStrokeColor(BORDER)
-    canvas.setLineWidth(0.6)
-    canvas.line(doc.leftMargin, y_line, letter[0] - doc.rightMargin, y_line)
-
-    canvas.setFont("Helvetica", 7)
-    canvas.setFillColor(MID)
-    canvas.drawString(doc.leftMargin, y_line - 0.16 * inch, f"Print date: {print_date}")
-    canvas.drawRightString(letter[0] - doc.rightMargin, y_line - 0.16 * inch, f"Page {page_num} of 1")
-
-    canvas.setFont("Helvetica-Bold", 7)
-    canvas.setFillColor(BLACK)
-    canvas.drawCentredString(letter[0] / 2, 0.46 * inch, "GOLDEN GLAM INTERIORS LLC")
-
-    canvas.setFont("Helvetica", 6)
-    canvas.setFillColor(DARK)
-    canvas.drawCentredString(
-        letter[0] / 2,
-        0.32 * inch,
-        "Address: 828 Highland Ln Ne, Apt. 2204, Atlanta, GA 30306  |  Phone: 770-375-7343",
-    )
-    canvas.drawCentredString(
-        letter[0] / 2,
-        0.20 * inch,
-        "Bank #: 930283558  |  Routing: 061092387  |  Zelle: rana_salah@goldenglam.nl  |  E-mail: sales@goldenglam.nl",
-    )
-    canvas.restoreState()
+    """No-op: footer/header is handled by _NumberedCanvas."""
+    pass
 
 
 def _autosize(ws, widths=None):
@@ -534,7 +574,7 @@ def draw_invoice(inv, output_path):
         pagesize=letter,
         leftMargin=0.28 * inch,
         rightMargin=0.28 * inch,
-        topMargin=0.26 * inch,
+        topMargin=1.55 * inch,
         bottomMargin=1.00 * inch,
     )
     doc._gg_invoice = inv
@@ -592,11 +632,7 @@ def draw_invoice(inv, output_path):
         spaceAfter=6,
     )
 
-    if LOGO_PATH.exists():
-        logo = Image(str(LOGO_PATH), width=2.85 * inch, height=1.08 * inch)
-        logo.hAlign = "CENTER"
-        elements.append(logo)
-        elements.append(Spacer(1, 10))
+    # Logo is drawn by _NumberedCanvas on every page (see _draw_footer_and_header)
 
     client_rows = [
         [Paragraph("Tel. | Mob.:", label_style), Paragraph(inv.get("client_phone", ""), value_style)],
@@ -781,7 +817,8 @@ def draw_invoice(inv, output_path):
         note_style
     ))
 
-    doc.build(elements, onFirstPage=_footer, onLaterPages=_footer)
+    doc.build(elements, onFirstPage=_footer, onLaterPages=_footer,
+              canvasmaker=_NumberedCanvas)
 
     xlsx_path = _write_internal_excel(inv, output_path)
 
