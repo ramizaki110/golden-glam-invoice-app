@@ -444,7 +444,7 @@ def draw_invoice(inv, output_path):
         if img_path:
             temp_images.append(img_path)
             try:
-                img = Image(img_path, width=0.80 * inch, height=0.50 * inch)
+                img = Image(img_path, width=0.96 * inch, height=0.70 * inch)
                 img.hAlign = "CENTER"
                 photo_cell = img
             except Exception:
