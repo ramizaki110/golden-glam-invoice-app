@@ -786,7 +786,7 @@ async function buildSummary(){
   // Build line text, embedding compressed base64 for any uploaded photo
   const lineTexts = await Promise.all(itemData.map(async d => {
     let imgTag = '';
-    if(d.imgFile){
+    if(d.imgFile || _compressedImgs[d.id]){
       // Prefer pre-compressed version (set when photo was uploaded)
       let b64 = _compressedImgs[d.id];
       if(!b64){
