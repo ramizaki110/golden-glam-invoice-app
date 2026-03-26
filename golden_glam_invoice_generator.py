@@ -210,6 +210,7 @@ def _write_internal_excel(inv: dict, output_path: str):
 
     headers = [
         "Item No",
+        "Vendor Name",
         "Vendor No",
         "Description",
         "Qty",
@@ -253,6 +254,7 @@ def _write_internal_excel(inv: dict, output_path: str):
 
         ws.append([
             item.get("no", ""),
+            item.get("vendor_name", ""),
             item.get("vendor_no", ""),
             item.get("description", ""),
             qty,
