@@ -2,6 +2,7 @@ import os
 import base64
 import tempfile
 from pathlib import Path
+from datetime import datetime
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -28,24 +29,31 @@ styles = getSampleStyleSheet()
 BLACK = colors.HexColor("#231f1e")
 DARK = colors.HexColor("#4a4745")
 MID = colors.HexColor("#8c8a87")
-BORDER = colors.HexColor("#e0dedd")
+BORDER = colors.HexColor("#d8d5d2")
 
 
 def usd(v: float) -> str:
     return f"${v:,.0f}"
 
 
+def fmt_date_for_footer(date_str: str) -> str:
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        return dt.strftime("%Y-%m-%d")
+    except Exception:
+        return date_str or ""
+
+
 def _decode_image(image_value: str) -> str | None:
     if not image_value:
         return None
+
     if not image_value.startswith("data:image"):
         return image_value if os.path.exists(image_value) else None
 
     try:
         header, b64 = image_value.split(",", 1)
-        ext = "jpg"
-        if "png" in header.lower():
-            ext = "png"
+        ext = "png" if "png" in header.lower() else "jpg"
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}")
         tmp.write(base64.b64decode(b64))
         tmp.close()
@@ -55,24 +63,36 @@ def _decode_image(image_value: str) -> str | None:
 
 
 def _footer(canvas, doc):
+    inv = getattr(doc, "_gg_invoice", {})
+    print_date = fmt_date_for_footer(inv.get("date", ""))
+    page_num = canvas.getPageNumber()
+
     canvas.saveState()
+    y_line = 0.70 * inch
+
     canvas.setStrokeColor(BORDER)
-    canvas.line(doc.leftMargin, 0.65 * inch, letter[0] - doc.rightMargin, 0.65 * inch)
+    canvas.setLineWidth(0.6)
+    canvas.line(doc.leftMargin, y_line, letter[0] - doc.rightMargin, y_line)
+
+    canvas.setFont("Helvetica", 7)
+    canvas.setFillColor(MID)
+    canvas.drawString(doc.leftMargin, y_line - 0.16 * inch, f"Print date: {print_date}")
+    canvas.drawRightString(letter[0] - doc.rightMargin, y_line - 0.16 * inch, f"Page {page_num} of 1")
 
     canvas.setFont("Helvetica-Bold", 7)
     canvas.setFillColor(BLACK)
-    canvas.drawCentredString(letter[0] / 2, 0.48 * inch, "GOLDEN GLAM INTERIORS LLC")
+    canvas.drawCentredString(letter[0] / 2, 0.46 * inch, "GOLDEN GLAM INTERIORS LLC")
 
     canvas.setFont("Helvetica", 6)
     canvas.setFillColor(DARK)
     canvas.drawCentredString(
         letter[0] / 2,
-        0.34 * inch,
+        0.32 * inch,
         "Address: 828 Highland Ln Ne, Apt. 2204, Atlanta, GA 30306  |  Phone: 770-375-7343",
     )
     canvas.drawCentredString(
         letter[0] / 2,
-        0.22 * inch,
+        0.20 * inch,
         "Bank #: 930283558  |  Routing: 061092387  |  Zelle: rana_salah@goldenglam.nl  |  E-mail: sales@goldenglam.nl",
     )
     canvas.restoreState()
@@ -130,7 +150,6 @@ def _write_internal_excel(inv: dict, output_path: str):
         cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
     subtotal = 0
-    total_cost = 0
 
     for item in inv["items"]:
         qty = item.get("qty", 0)
@@ -145,7 +164,6 @@ def _write_internal_excel(inv: dict, output_path: str):
         gm = (profit / line_total) if line_total else 0
 
         subtotal += line_total
-        total_cost += ext_cost
 
         ws.append([
             item.get("no", ""),
@@ -215,11 +233,12 @@ def draw_invoice(inv, output_path):
     doc = SimpleDocTemplate(
         output_path,
         pagesize=letter,
-        leftMargin=0.6 * inch,
-        rightMargin=0.6 * inch,
-        topMargin=0.45 * inch,
-        bottomMargin=0.9 * inch,
+        leftMargin=0.55 * inch,
+        rightMargin=0.55 * inch,
+        topMargin=0.38 * inch,
+        bottomMargin=1.00 * inch,
     )
+    doc._gg_invoice = inv
 
     elements = []
     temp_images = []
@@ -252,19 +271,28 @@ def draw_invoice(inv, output_path):
         "note_style",
         parent=styles["Normal"],
         fontName="Helvetica",
-        fontSize=7.5,
+        fontSize=7.3,
         textColor=DARK,
         leading=10,
     )
+    invoice_title_style = ParagraphStyle(
+        "invoice_title_style",
+        parent=styles["Title"],
+        fontName="Helvetica-Bold",
+        fontSize=17,
+        textColor=BLACK,
+        alignment=1,
+        spaceAfter=6,
+    )
 
-    # (1) centered logo
+    # (1) Bigger centered logo
     if LOGO_PATH.exists():
-        logo = Image(str(LOGO_PATH), width=1.35 * inch, height=0.95 * inch)
+        logo = Image(str(LOGO_PATH), width=2.10 * inch, height=1.35 * inch)
         logo.hAlign = "CENTER"
         elements.append(logo)
-        elements.append(Spacer(1, 10))
+        elements.append(Spacer(1, 6))
 
-    # (2) client block under logo, left aligned
+    # (2) Left block indented to left page margin
     client_rows = [
         [Paragraph("Tel. | Mob.:", label_style), Paragraph(inv.get("client_phone", ""), value_style)],
         [Paragraph("Name:", label_style), Paragraph(inv.get("client_name", ""), value_style)],
@@ -279,7 +307,7 @@ def draw_invoice(inv, output_path):
             Paragraph(line, value_style),
         ])
 
-    client_tbl = Table(client_rows, colWidths=[0.95 * inch, 3.3 * inch])
+    client_tbl = Table(client_rows, colWidths=[0.95 * inch, 3.45 * inch])
     client_tbl.setStyle(TableStyle([
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
@@ -288,21 +316,17 @@ def draw_invoice(inv, output_path):
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
     ]))
     elements.append(client_tbl)
-    elements.append(Spacer(1, 12))
+    elements.append(Spacer(1, 10))
 
-    # (3) invoice meta starts from left-most beneath header/client
-    title_tbl = Table([[Paragraph("<b>Invoice</b>", styles["Title"])]], colWidths=[6.8 * inch])
-    title_tbl.setStyle(TableStyle([
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-    ]))
-    elements.append(title_tbl)
+    # Invoice title
+    elements.append(Paragraph("Invoice", invoice_title_style))
 
+    # (3) Meta table left aligned full width
     meta_data = [
         ["Invoice Date:", "Invoice", "Client No:", "Your Reference:"],
         [inv.get("date", ""), inv.get("number", ""), str(inv.get("client_no", "")), inv.get("reference", "")],
     ]
-    meta_tbl = Table(meta_data, colWidths=[1.25 * inch, 1.15 * inch, 1.10 * inch, 3.30 * inch])
+    meta_tbl = Table(meta_data, colWidths=[1.35 * inch, 1.30 * inch, 1.25 * inch, 3.05 * inch])
     meta_tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), BLACK),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -313,11 +337,15 @@ def draw_invoice(inv, output_path):
         ("GRID", (0, 0), (-1, -1), 0.3, BORDER),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
     elements.append(meta_tbl)
     elements.append(Spacer(1, 12))
 
-    # Items
+    # Item table
     headers = ["ITEM NO.", "DESCRIPTION", "EST. DEL.", "TYPE", "QTY", "UNIT PRICE", "DISC.", "TOTAL", "PHOTO"]
     rows = [headers]
 
@@ -329,12 +357,24 @@ def draw_invoice(inv, output_path):
 
         photo_cell = ""
         img_path = _decode_image(item.get("image", ""))
+
         if img_path:
             temp_images.append(img_path)
             try:
-                img = Image(img_path, width=0.85 * inch, height=0.55 * inch)
+                img = Image(img_path, width=0.82 * inch, height=0.52 * inch)
                 img.hAlign = "CENTER"
-                photo_cell = img
+
+                # (4) white background behind image cell so no dark box effect
+                photo_cell = Table([[img]], colWidths=[0.90 * inch], rowHeights=[0.60 * inch])
+                photo_cell.setStyle(TableStyle([
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+                    ("TOPPADDING", (0, 0), (-1, -1), 2),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ]))
             except Exception:
                 photo_cell = ""
 
@@ -352,7 +392,7 @@ def draw_invoice(inv, output_path):
 
     item_tbl = Table(
         rows,
-        colWidths=[0.70 * inch, 2.15 * inch, 0.90 * inch, 0.55 * inch, 0.35 * inch, 0.70 * inch, 0.45 * inch, 0.60 * inch, 0.90 * inch]
+        colWidths=[0.65 * inch, 2.05 * inch, 0.95 * inch, 0.55 * inch, 0.35 * inch, 0.75 * inch, 0.45 * inch, 0.60 * inch, 0.95 * inch]
     )
     item_tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), BLACK),
@@ -379,7 +419,7 @@ def draw_invoice(inv, output_path):
         elements.append(Paragraph(f"<b>{inv.get('delivery_type')}</b>", cell_style))
         elements.append(Spacer(1, 4))
 
-    # (7) add line above subtotal
+    # (5) line after SubTotal and after Total
     totals_tbl = Table([
         ["SubTotal", usd(subtotal)],
         ["Delivery Charge", usd(delivery_charge)],
@@ -388,6 +428,8 @@ def draw_invoice(inv, output_path):
     ], colWidths=[1.7 * inch, 1.0 * inch])
     totals_tbl.setStyle(TableStyle([
         ("LINEABOVE", (0, 0), (-1, 0), 0.8, BLACK),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.8, BORDER),
+        ("LINEBELOW", (0, 3), (-1, 3), 0.8, BLACK),
         ("FONTNAME", (0, 0), (-1, -2), "Helvetica"),
         ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, -1), 8.5),
@@ -417,6 +459,7 @@ def draw_invoice(inv, output_path):
             f"Payment is in installments. Please refer to order no. {inv.get('number','')} and client no. {inv.get('client_no','')} with your payment."
         ),
     }
+
     elements.append(Paragraph(pay_map.get(inv.get("payment_terms", "standard"), pay_map["standard"]), note_style))
     elements.append(Spacer(1, 6))
     elements.append(Paragraph(
