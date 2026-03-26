@@ -429,7 +429,7 @@ def draw_invoice(inv, output_path):
     elements.append(meta_tbl)
     elements.append(Spacer(1, 12))
 
-    headers = ["ITEM NO.", "DESCRIPTION", "EST. DEL.", "TYPE", "QTY", "UNIT PRICE", "DISC.", "TOTAL", "PHOTO"]
+    headers = ["ITEM NO.", "DESCRIPTION", "EST. DELIVERY", "TYPE", "QTY", "UNIT PRICE", "DISC.", "TOTAL", "PHOTO"]
     rows = [headers]
 
     for item in inv.get("items", []):
