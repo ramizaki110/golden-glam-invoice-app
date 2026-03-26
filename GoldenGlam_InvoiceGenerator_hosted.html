@@ -1185,9 +1185,7 @@ function loadInvoice(idx){
   refreshClientDropdown();
   recalc();
   // Navigate to invoice tab
-  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
-  document.querySelector('.nav-btn[onclick*="invoice'"]')?.classList.add('active');
-  showTab('invoice', document.querySelector('.nav-btn[onclick*="invoice'"]'));
+  showTab('invoice', document.querySelector('.nav-btn'));
 }
 
 function deleteInvoice(idx){
