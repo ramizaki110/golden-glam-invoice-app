@@ -200,117 +200,320 @@ def _autosize(ws, widths=None):
 
 def _write_internal_excel(inv: dict, output_path: str):
     wb = Workbook()
-    ws = wb.active
-    ws.title = "Invoice Internal"
 
-    thin = Side(style="thin", color="D9D9D9")
-    hdr_fill = PatternFill("solid", fgColor="231F1E")
-    hdr_font = Font(color="FFFFFF", bold=True)
-    section_fill = PatternFill("solid", fgColor="F5F2EF")
+    # ── Shared styles ──────────────────────────────────────────────────────────
+    thin       = Side(style="thin", color="D9D9D9")
+    thick_side = Side(style="medium", color="231F1E")
+    bdr        = Border(left=thin, right=thin, top=thin, bottom=thin)
+    hdr_fill   = PatternFill("solid", fgColor="231F1E")   # dark header
+    gold_fill  = PatternFill("solid", fgColor="B8963E")   # gold accent
+    green_fill = PatternFill("solid", fgColor="D4EDDA")
+    amber_fill = PatternFill("solid", fgColor="FFF3CD")
+    red_fill   = PatternFill("solid", fgColor="F8D7DA")
+    grey_fill  = PatternFill("solid", fgColor="F5F2EF")
+    white_fill = PatternFill("solid", fgColor="FFFFFF")
+    hdr_font   = Font(color="FFFFFF", bold=True, size=9)
+    bold_font  = Font(bold=True, size=9)
+    norm_font  = Font(size=9)
+    title_font = Font(bold=True, size=12, color="231F1E")
+    gold_font  = Font(bold=True, size=10, color="FFFFFF")
+    center     = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left       = Alignment(horizontal="left",   vertical="center", wrap_text=True)
+    right      = Alignment(horizontal="right",  vertical="center")
 
-    headers = [
-        "Item No",
-        "Vendor Name",
-        "Vendor No",
-        "Description",
-        "Qty",
-        "Unit",
-        "Unit Price",
-        "Discount %",
-        "Line Total",
-        "Raw Cost",
-        "Cost Disc %",
-        "Unit Cost",
-        "Extended Cost",
-        "Profit",
-        "GM %",
-        "Delivery",
-        "Image Included",
-    ]
-    ws.append(headers)
+    def hdr_cell(ws, row, col, val):
+        c = ws.cell(row, col, val)
+        c.fill = hdr_fill; c.font = hdr_font; c.alignment = center; c.border = bdr
+        return c
 
-    for c in range(1, len(headers) + 1):
-        cell = ws.cell(1, c)
-        cell.fill = hdr_fill
-        cell.font = hdr_font
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-        cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    def data_cell(ws, row, col, val, fmt=None, bold=False, fill=None, align=None):
+        c = ws.cell(row, col, val)
+        c.font = Font(bold=bold, size=9)
+        c.alignment = align or left
+        c.border = bdr
+        if fmt: c.number_format = fmt
+        if fill: c.fill = fill
+        return c
 
-    subtotal = 0
-
-    for item in inv["items"]:
-        qty = item.get("qty", 0)
-        unit_price = item.get("unit_price", 0)
-        disc = item.get("discount", 0)
-        line_total = qty * unit_price * (1 - disc)
-        raw_cost = item.get("raw_cost", 0) or 0
-        cost_disc = item.get("cost_disc", 0) or 0
-        unit_cost = item.get("cost", 0) or 0
-        ext_cost = unit_cost * qty
-        profit = line_total - ext_cost
-        gm = (profit / line_total) if line_total else 0
-
-        subtotal += line_total
-
-        ws.append([
-            item.get("no", ""),
-            item.get("vendor_name", ""),
-            item.get("vendor_no", ""),
-            item.get("description", ""),
-            qty,
-            item.get("unit", ""),
-            unit_price,
-            disc,
-            line_total,
-            raw_cost,
-            cost_disc / 100 if cost_disc else 0,
-            unit_cost,
-            ext_cost,
-            profit,
-            gm,
-            item.get("delivery", ""),
-            "Yes" if item.get("image") else "",
-        ])
-
+    # ── Pre-compute financials ─────────────────────────────────────────────────
+    items = inv.get("items", [])
     delivery_charge = inv.get("delivery_charge", 0) or 0
-    tax_amt = (subtotal + delivery_charge) * (inv.get("tax_rate", 0) or 0)
-    total = subtotal + delivery_charge + tax_amt
+    tax_rate        = inv.get("tax_rate", 0) or 0
 
-    row = ws.max_row + 2
-    summary_rows = [
-        ("Invoice", inv.get("number", "")),
-        ("Date", inv.get("date", "")),
-        ("Client", inv.get("client_name", "")),
-        ("Client No", inv.get("client_no", "")),
-        ("Delivery Type", inv.get("delivery_type", "")),
-        ("Payment Terms", inv.get("payment_terms", "")),
-        ("Subtotal", subtotal),
-        ("Delivery Charge", delivery_charge),
-        ("Sales Tax", tax_amt),
-        ("Total", total),
+    item_data = []
+    subtotal = 0
+    total_cost = 0
+    for item in items:
+        qty        = item.get("qty", 0)
+        unit_price = item.get("unit_price", 0)
+        disc       = item.get("discount", 0)
+        lt         = qty * unit_price * (1 - disc)
+        unit_cost  = item.get("cost", 0) or 0
+        ext_cost   = unit_cost * qty
+        profit     = lt - ext_cost if unit_cost else None
+        gm         = (profit / lt) if (profit is not None and lt) else None
+        subtotal  += lt
+        if unit_cost: total_cost += ext_cost
+        item_data.append(dict(
+            no=item.get("no",""), vendor_name=item.get("vendor_name",""),
+            vendor_no=item.get("vendor_no",""), desc=item.get("description",""),
+            qty=qty, unit=item.get("unit",""), unit_price=unit_price,
+            disc=disc, lt=lt, raw_cost=item.get("raw_cost",0) or 0,
+            cost_disc=item.get("cost_disc",0) or 0, unit_cost=unit_cost,
+            ext_cost=ext_cost, profit=profit, gm=gm,
+            delivery=item.get("delivery",""),
+            has_img=bool(item.get("image")),
+        ))
+
+    tax_amt     = (subtotal + delivery_charge) * tax_rate
+    grand_total = subtotal + delivery_charge + tax_amt
+    total_profit = subtotal - total_cost if total_cost else None
+    overall_gm   = (total_profit / subtotal) if (total_profit is not None and subtotal) else None
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # TAB 1 — P&L Summary  (at-a-glance)
+    # ══════════════════════════════════════════════════════════════════════════
+    ws1 = wb.active
+    ws1.title = "P&L Summary"
+    ws1.column_dimensions["A"].width = 28
+    ws1.column_dimensions["B"].width = 18
+    ws1.column_dimensions["C"].width = 18
+    ws1.column_dimensions["D"].width = 16
+    ws1.column_dimensions["E"].width = 16
+    ws1.row_dimensions[1].height = 28
+
+    # Title banner
+    ws1.merge_cells("A1:E1")
+    tc = ws1.cell(1, 1, f"GOLDEN GLAM — P&L SUMMARY  |  Invoice {inv.get('number','')}  |  {inv.get('client_name','')}  |  {inv.get('date','')}")
+    tc.font = Font(bold=True, size=11, color="FFFFFF")
+    tc.fill = hdr_fill; tc.alignment = center
+
+    # ── Section A: Overall P&L ────────────────────────────────────────────────
+    r = 3
+    ws1.merge_cells(f"A{r}:E{r}")
+    sc = ws1.cell(r, 1, "OVERALL INVOICE P&L")
+    sc.font = gold_font; sc.fill = gold_fill; sc.alignment = center
+    ws1.row_dimensions[r].height = 20
+
+    r += 1
+    for col, h in enumerate(["", "Amount ($)", "% of Revenue", "", ""], 1):
+        hdr_cell(ws1, r, col, h)
+    ws1.row_dimensions[r].height = 18
+
+    def pl_row(ws, r, label, value, pct=None, highlight=None):
+        ws.row_dimensions[r].height = 18
+        c1 = ws.cell(r, 1, label); c1.font = bold_font; c1.border = bdr; c1.fill = grey_fill; c1.alignment = left
+        c2 = ws.cell(r, 2, value); c2.font = bold_font; c2.border = bdr; c2.alignment = right
+        c2.number_format = "$#,##0.00"
+        c3 = ws.cell(r, 3, pct);   c3.font = norm_font; c3.border = bdr; c3.alignment = right
+        if pct is not None: c3.number_format = "0.0%"
+        ws.cell(r, 4).border = bdr; ws.cell(r, 5).border = bdr
+        if highlight: c2.fill = highlight; c3.fill = highlight
+
+    r += 1; pl_row(ws1, r, "Invoice Subtotal (Revenue)", subtotal)
+    r += 1; pl_row(ws1, r, "Total Cost of Goods", total_cost if total_cost else "N/A",
+                   (total_cost/subtotal) if (total_cost and subtotal) else None)
+    r += 1
+    if total_profit is not None:
+        fill = green_fill if total_profit >= 0 else red_fill
+        pl_row(ws1, r, "Gross Profit (items)", total_profit,
+               overall_gm, highlight=fill)
+    else:
+        pl_row(ws1, r, "Gross Profit (items)", "N/A — costs not entered")
+    r += 1; pl_row(ws1, r, "Delivery Charged to Client", delivery_charge)
+    r += 1; pl_row(ws1, r, "Sales Tax", tax_amt, tax_rate)
+    r += 1
+    ws1.merge_cells(f"A{r}:E{r}")
+    note = ws1.cell(r, 1, "ℹ  Delivery P&L (net profit on delivery) → see 'Delivery P&L' tab")
+    note.font = Font(italic=True, size=8, color="888888"); note.alignment = left
+
+    # ── Section B: Line-item P&L ──────────────────────────────────────────────
+    r += 2
+    ws1.merge_cells(f"A{r}:E{r}")
+    sc2 = ws1.cell(r, 1, "LINE ITEM BREAKDOWN")
+    sc2.font = gold_font; sc2.fill = gold_fill; sc2.alignment = center
+    ws1.row_dimensions[r].height = 20
+
+    r += 1
+    for col, h in enumerate(["Item / Description", "Line Total ($)", "Cost ($)", "Profit ($)", "GM %"], 1):
+        hdr_cell(ws1, r, col, h)
+    ws1.row_dimensions[r].height = 18
+
+    for d in item_data:
+        r += 1
+        ws1.row_dimensions[r].height = 16
+        label = f"[{d['no']}] {d['desc'][:40]}" if d['no'] else d['desc'][:45]
+        data_cell(ws1, r, 1, label, bold=False)
+        data_cell(ws1, r, 2, d['lt'],       fmt="$#,##0.00", align=right)
+        data_cell(ws1, r, 3, d['ext_cost'] if d['unit_cost'] else "—", fmt="$#,##0.00" if d['unit_cost'] else None, align=right)
+        if d['profit'] is not None:
+            pf = d['profit']
+            fill = green_fill if pf >= 0 else red_fill
+            data_cell(ws1, r, 4, pf,     fmt="$#,##0.00", align=right, fill=fill, bold=True)
+            data_cell(ws1, r, 5, d['gm'] if d['gm'] is not None else "—",
+                      fmt="0.0%", align=right,
+                      fill=green_fill if d['gm'] and d['gm']>=0.30 else (amber_fill if d['gm'] and d['gm']>=0.15 else red_fill))
+        else:
+            data_cell(ws1, r, 4, "—", align=right)
+            data_cell(ws1, r, 5, "—", align=right)
+
+    # Totals row
+    r += 1
+    ws1.row_dimensions[r].height = 18
+    for col in range(1, 6):
+        ws1.cell(r, col).border = Border(top=thick_side, bottom=thick_side, left=thin, right=thin)
+    data_cell(ws1, r, 1, "TOTAL", bold=True, fill=grey_fill)
+    data_cell(ws1, r, 2, subtotal,      fmt="$#,##0.00", bold=True, align=right)
+    data_cell(ws1, r, 3, total_cost if total_cost else "—", fmt="$#,##0.00" if total_cost else None, bold=True, align=right)
+    if total_profit is not None:
+        fill = green_fill if total_profit >= 0 else red_fill
+        data_cell(ws1, r, 4, total_profit, fmt="$#,##0.00", bold=True, align=right, fill=fill)
+        data_cell(ws1, r, 5, overall_gm,   fmt="0.0%",      bold=True, align=right,
+                  fill=green_fill if overall_gm and overall_gm>=0.30 else (amber_fill if overall_gm and overall_gm>=0.15 else red_fill))
+    else:
+        data_cell(ws1, r, 4, "—", bold=True, align=right)
+        data_cell(ws1, r, 5, "—", bold=True, align=right)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # TAB 2 — Invoice Detail  (full line item breakdown)
+    # ══════════════════════════════════════════════════════════════════════════
+    ws2 = wb.create_sheet("Invoice Detail")
+    det_headers = [
+        "Item No", "Vendor Name", "Vendor No", "Description",
+        "Qty", "Unit", "Unit Price", "Disc %",
+        "Line Total", "Raw Cost", "Cost Disc %", "Unit Cost",
+        "Ext. Cost", "Profit", "GM %", "Est. Delivery", "Photo",
     ]
+    for col, h in enumerate(det_headers, 1):
+        hdr_cell(ws2, 1, col, h)
+    ws2.row_dimensions[1].height = 32
 
-    for label, value in summary_rows:
-        ws.cell(row, 1).value = label
-        ws.cell(row, 1).fill = section_fill
-        ws.cell(row, 1).font = Font(bold=True)
-        ws.cell(row, 2).value = value
-        row += 1
+    for i, d in enumerate(item_data):
+        row_idx = i + 2
+        ws2.row_dimensions[row_idx].height = 16
+        vals = [
+            d["no"], d["vendor_name"], d["vendor_no"], d["desc"],
+            d["qty"], d["unit"], d["unit_price"], d["disc"],
+            d["lt"], d["raw_cost"], d["cost_disc"]/100 if d["cost_disc"] else 0,
+            d["unit_cost"], d["ext_cost"],
+            d["profit"] if d["profit"] is not None else "N/A",
+            d["gm"] if d["gm"] is not None else "N/A",
+            d["delivery"], "Yes" if d["has_img"] else "",
+        ]
+        for col, v in enumerate(vals, 1):
+            c = ws2.cell(row_idx, col, v)
+            c.font = norm_font; c.border = bdr; c.alignment = left
+        # Formats
+        for col, fmt in [(7,"$#,##0.00"),(9,"$#,##0.00"),(10,"$#,##0.00"),
+                         (12,"$#,##0.00"),(13,"$#,##0.00"),(14,"$#,##0.00")]:
+            ws2.cell(row_idx, col).number_format = fmt
+        for col in [8, 11]:
+            ws2.cell(row_idx, col).number_format = "0.0%"
+        if isinstance(ws2.cell(row_idx, 15).value, float):
+            ws2.cell(row_idx, 15).number_format = "0.0%"
+        # GM colour
+        gm_val = d["gm"]
+        if gm_val is not None:
+            ws2.cell(row_idx, 15).fill = (green_fill if gm_val>=0.30 else amber_fill if gm_val>=0.15 else red_fill)
 
-    for r in ws.iter_rows():
-        for cell in r:
-            cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    _autosize(ws2, {1:12, 2:18, 3:14, 4:36, 5:6, 6:8, 7:12, 8:9,
+                    9:12, 10:12, 11:11, 12:12, 13:12, 14:12, 15:9, 16:20, 17:8})
 
-    for row_idx in range(2, ws.max_row + 1):
-        for col_idx in [6, 8, 9, 11, 12, 13]:
-            ws.cell(row_idx, col_idx).number_format = "$#,##0"
-        for col_idx in [7, 10, 14]:
-            ws.cell(row_idx, col_idx).number_format = "0.0%"
+    # ══════════════════════════════════════════════════════════════════════════
+    # TAB 3 — Delivery P&L
+    # ══════════════════════════════════════════════════════════════════════════
+    ws3 = wb.create_sheet("Delivery P&L")
+    ws3.column_dimensions["A"].width = 22
+    ws3.column_dimensions["B"].width = 22
+    ws3.column_dimensions["C"].width = 16
+    ws3.row_dimensions[1].height = 28
 
-    _autosize(ws, {
-        1: 14, 2: 16, 3: 42, 4: 8, 5: 10, 6: 12, 7: 11, 8: 12,
-        9: 12, 10: 11, 11: 12, 12: 14, 13: 12, 14: 10, 15: 22, 16: 14
-    })
+    # Title
+    ws3.merge_cells("A1:C1")
+    t3 = ws3.cell(1, 1, f"DELIVERY P&L  |  Invoice {inv.get('number','')}  |  {inv.get('client_name','')}")
+    t3.font = Font(bold=True, size=10, color="FFFFFF")
+    t3.fill = hdr_fill; t3.alignment = center
+
+    # Charged to client
+    r = 3
+    ws3.merge_cells(f"A{r}:C{r}")
+    ws3.cell(r, 1, "DELIVERY CHARGED TO CLIENT").font = Font(bold=True, size=9)
+    ws3.cell(r, 1).fill = grey_fill; ws3.cell(r, 1).border = bdr; ws3.cell(r, 1).alignment = left
+    r += 1
+    ws3.cell(r, 1, inv.get("delivery_type","Delivery") or "Delivery").border = bdr
+    ws3.cell(r, 1).font = norm_font; ws3.cell(r, 1).alignment = left
+    ws3.cell(r, 2, "").border = bdr
+    c_charged = ws3.cell(r, 3, delivery_charge)
+    c_charged.number_format = "$#,##0.00"; c_charged.border = bdr
+    c_charged.font = Font(bold=True, size=9); c_charged.alignment = right
+
+    # Delivery costs (manual entry)
+    r += 2
+    ws3.merge_cells(f"A{r}:C{r}")
+    ws3.cell(r, 1, "YOUR DELIVERY COSTS  (fill in manually)").font = Font(bold=True, size=9)
+    ws3.cell(r, 1).fill = grey_fill; ws3.cell(r, 1).border = bdr; ws3.cell(r, 1).alignment = left
+    r += 1
+    for col, h in enumerate(["From", "To", "Cost ($)"], 1):
+        hdr_cell(ws3, r, col, h)
+    ws3.row_dimensions[r].height = 18
+    cost_start_row = r + 1
+    for i in range(10):
+        rr = r + 1 + i
+        for col in range(1, 4):
+            c = ws3.cell(rr, col, "")
+            c.border = bdr; c.font = norm_font; c.alignment = left
+            if col == 3:
+                c.number_format = "$#,##0.00"; c.alignment = right
+        ws3.row_dimensions[rr].height = 16
+    cost_end_row = r + 10
+
+    # Total delivery costs formula
+    r = cost_end_row + 1
+    ws3.row_dimensions[r].height = 18
+    ws3.cell(r, 1, "Total Delivery Costs").font = bold_font; ws3.cell(r, 1).border = bdr; ws3.cell(r, 1).fill = grey_fill; ws3.cell(r, 1).alignment = left
+    ws3.cell(r, 2, "").border = bdr
+    total_cost_cell = ws3.cell(r, 3)
+    total_cost_cell.value = f"=SUM(C{cost_start_row}:C{cost_end_row})"
+    total_cost_cell.number_format = "$#,##0.00"; total_cost_cell.border = bdr
+    total_cost_cell.font = bold_font; total_cost_cell.alignment = right
+
+    # Delivery P&L result
+    r += 2
+    ws3.merge_cells(f"A{r}:C{r}")
+    ws3.cell(r, 1, "DELIVERY P&L").font = gold_font
+    ws3.cell(r, 1).fill = gold_fill; ws3.cell(r, 1).border = bdr; ws3.cell(r, 1).alignment = center
+    ws3.row_dimensions[r].height = 20
+
+    r += 1
+    ws3.row_dimensions[r].height = 18
+    ws3.cell(r, 1, "Charged to Client").font = norm_font; ws3.cell(r, 1).border = bdr; ws3.cell(r, 1).alignment = left
+    ws3.cell(r, 2, "").border = bdr
+    ws3.cell(r, 3, delivery_charge).number_format = "$#,##0.00"; ws3.cell(r, 3).border = bdr; ws3.cell(r, 3).alignment = right
+
+    r += 1
+    ws3.row_dimensions[r].height = 18
+    ws3.cell(r, 1, "Total Delivery Costs").font = norm_font; ws3.cell(r, 1).border = bdr; ws3.cell(r, 1).alignment = left
+    ws3.cell(r, 2, "").border = bdr
+    ref_cost_row = cost_end_row + 1
+    ws3.cell(r, 3, f"=C{ref_cost_row}").number_format = "$#,##0.00"; ws3.cell(r, 3).border = bdr; ws3.cell(r, 3).alignment = right
+
+    r += 1
+    ws3.row_dimensions[r].height = 22
+    net_cell_row = r
+    ws3.cell(r, 1, "Net Profit / (Loss) on Delivery").font = Font(bold=True, size=10)
+    ws3.cell(r, 1).border = Border(top=thick_side, bottom=thick_side, left=thin, right=thin)
+    ws3.cell(r, 1).alignment = left
+    ws3.cell(r, 2, "").border = Border(top=thick_side, bottom=thick_side, left=thin, right=thin)
+    net_c = ws3.cell(r, 3)
+    net_c.value = f"={delivery_charge}-C{ref_cost_row}"
+    net_c.number_format = "$#,##0.00"
+    net_c.font = Font(bold=True, size=10)
+    net_c.border = Border(top=thick_side, bottom=thick_side, left=thin, right=thin)
+    net_c.alignment = right
+    # Note: colour is static since formula is dynamic — add a helper note
+    r += 1
+    ws3.cell(r, 1, "ℹ  Positive = profit on delivery  |  Negative = loss on delivery").font = Font(italic=True, size=8, color="888888")
+    ws3.cell(r, 1).alignment = left
 
     xlsx_path = Path(output_path).with_name(Path(output_path).stem + "_INTERNAL.xlsx")
     wb.save(xlsx_path)
