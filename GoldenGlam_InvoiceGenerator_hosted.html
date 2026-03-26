@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -258,7 +259,8 @@
     <div class="card-title">Add item to library</div>
     <div class="grid2">
       <div class="field"><label>Item No. (customer)</label><input id="ni_no"></div>
-      <div class="field"><label>Vendor No. <span class="badge-internal">internal</span></label><input id="ni_vendor_no"></div>
+      <div class="field"><label>Vendor name <span class="badge-internal">internal</span></label><input id="ni_vendor_name" placeholder="e.g. Uttermost"></div>
+      <div class="field"><label>Vendor No. <span class="badge-internal">internal</span></label><input id="ni_vendor_no" placeholder="e.g. UTT-34343"></div>
     </div>
     <div class="field"><label>Description</label><input id="ni_desc" placeholder="Item name | dimensions"></div>
     <div class="grid3">
@@ -288,7 +290,7 @@
     <div class="card-title">Add new vendor</div>
     <div class="grid2">
       <div class="field"><label>Vendor name</label><input id="nv_name" placeholder="e.g. Uttermost"></div>
-      <div class="field"><label>Short code <span style="font-size:10px;font-weight:400;color:var(--mid)">(optional)</span></label><input id="nv_code" placeholder="e.g. UTT"></div>
+      <div class="field"><label>Vendor No. prefix <span style="font-size:10px;font-weight:400;color:var(--mid)">(optional)</span></label><input id="nv_code" placeholder="e.g. UTT"></div>
     </div>
     <button class="btn btn-primary btn-sm" onclick="saveNewVendor()" style="margin-top:8px">Save vendor</button>
   </div>
@@ -494,11 +496,12 @@ function addItem(pre={}){
       </div>
       <div class="field">
         <label>Vendor <span class="badge-internal">internal</span></label>
-        <select id="i${id}_vno_sel" style="margin-bottom:3px" onchange="applyVendorSel(${id})">
+        <select id="i${id}_vendor_sel" style="margin-bottom:3px" onchange="applyVendorSel(${id})">
           <option value="">— select vendor —</option>
         </select>
-        <input id="i${id}_vno" value="${pre.vno||''}" placeholder="or type vendor name">
+        <input id="i${id}_vendor" value="${pre.vendor||''}" placeholder="or type vendor name">
       </div>
+      <div class="field"><label>Vendor No. <span class="badge-internal">internal</span></label><input id="i${id}_vno" value="${pre.vno||''}" placeholder="e.g. UTT-34343"></div>
       <div class="field"><label>Qty</label><input type="number" id="i${id}_qty" value="${pre.qty||1}" min="1" oninput="recalc()"></div>
     </div>
     <div class="grid4">
@@ -589,6 +592,8 @@ function fillFromLib(id, idx){
   const l = library[parseInt(idx)];
   document.getElementById('i'+id+'_desc').value  = l.desc||'';
   document.getElementById('i'+id+'_no').value    = l.no||'';
+  const vendorEl = document.getElementById('i'+id+'_vendor');
+  if(vendorEl) vendorEl.value = l.vendor||'';
   document.getElementById('i'+id+'_vno').value   = l.vno||'';
   document.getElementById('i'+id+'_price').value = l.price||'';
   document.getElementById('i'+id+'_cost').value  = l.cost||'';
@@ -711,6 +716,7 @@ async function buildSummary(){
   items.forEach(({id})=>{
     const desc   = document.getElementById('i'+id+'_desc')?.value||'';
     const no     = document.getElementById('i'+id+'_no')?.value||'';
+    const vendor = document.getElementById('i'+id+'_vendor')?.value||'';
     const vno    = document.getElementById('i'+id+'_vno')?.value||'';
     const qty    = parseFloat(document.getElementById('i'+id+'_qty')?.value)||1;
     const price  = parseFloat(document.getElementById('i'+id+'_price')?.value)||0;
@@ -723,8 +729,9 @@ async function buildSummary(){
     const imgFile= document.getElementById('i'+id+'_imgfile')?.files[0]||null;
     const lt     = qty*price*(1-disc/100);
     sub+=lt;
-    itemData.push({id,no,desc,vno,qty,price,disc,cost,raw_cost,cost_disc,unit,del,imgFile,lt});
+    itemData.push({id,no,desc,vendor,vno,qty,price,disc,cost,raw_cost,cost_disc,unit,del,imgFile,lt});
     const ci=[];
+    if(vendor) ci.push(`vendor: "${vendor}"`);
     if(vno) ci.push(`vendor_no: "${vno}"`);
     if(raw_cost) ci.push(`raw_cost: ${raw_cost.toFixed(2)}`);
     if(cost_disc) ci.push(`cost_disc: ${cost_disc.toFixed(1)}%`);
@@ -920,7 +927,7 @@ function renderLibraryList(){
     <div class="saved-row">
       <div>
         <div class="name">${l.desc}</div>
-        <div class="meta">#${l.no}${l.vno?' | vendor: '+l.vno:''} &nbsp;|&nbsp; List: $${l.price}${l.cost?' | Cost: $'+l.cost:''}</div>
+        <div class="meta">#${l.no}${l.vendor?' | '+l.vendor:''}${l.vno?' | no: '+l.vno:''} &nbsp;|&nbsp; List: $${l.price}${l.cost?' | Cost: $'+l.cost:''}</div>
       </div>
       <div class="row-actions">
         <button class="btn btn-xs" onclick="addItemFromLib(${i})">Add to invoice</button>
@@ -931,7 +938,7 @@ function renderLibraryList(){
 function addItemFromLib(i){
   const l=library[i];
   showTab('invoice', document.querySelector('.nav-btn'));
-  addItem({desc:l.desc,no:l.no,vno:l.vno||'',price:l.price,cost:l.cost,unit:l.unit||'Piece'});
+  addItem({desc:l.desc,no:l.no,vendor:l.vendor||'',vno:l.vno||'',price:l.price,cost:l.cost,unit:l.unit||'Piece'});
 }
 function delLibItem(i){ if(confirm('Delete?')){ library.splice(i,1); persist(); renderLibraryList(); } }
 function recalcLibCost(){
@@ -943,6 +950,7 @@ function recalcLibCost(){
 function saveLibItem(){
   const l={
     no:document.getElementById('ni_no').value.trim(),
+    vendor:document.getElementById('ni_vendor_name').value.trim(),
     vno:document.getElementById('ni_vendor_no').value.trim(),
     desc:document.getElementById('ni_desc').value.trim(),
     price:document.getElementById('ni_price').value,
@@ -953,7 +961,7 @@ function saveLibItem(){
   };
   if(!l.desc) return;
   library.push(l); persist(); renderLibraryList();
-  ['ni_no','ni_vendor_no','ni_desc','ni_price','ni_raw_cost','ni_cost_disc','ni_cost'].forEach(id=>document.getElementById(id).value='');
+  ['ni_no','ni_vendor_name','ni_vendor_no','ni_desc','ni_price','ni_raw_cost','ni_cost_disc','ni_cost'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('ni_unit').value='Piece';
   alert('Item saved!');
 }
@@ -986,7 +994,7 @@ function delVendor(i){
   if(confirm('Delete '+vendors[i].name+'?')){ vendors.splice(i,1); persist(); renderVendorList(); refreshVendorDropdowns(); }
 }
 function refreshVendorDropdowns(){
-  document.querySelectorAll('select[id^="i"][id$="_vno_sel"]').forEach(sel => {
+  document.querySelectorAll('select[id^="i"][id$="_vendor_sel"]').forEach(sel => {
     const cur = sel.value;
     sel.innerHTML = '<option value="">— select vendor —</option>' +
       vendors.map(v=>`<option value="${v.name}">${v.name}${v.code?' ('+v.code+')':''}</option>`).join('');
@@ -994,8 +1002,8 @@ function refreshVendorDropdowns(){
   });
 }
 function applyVendorSel(id){
-  const sel = document.getElementById('i'+id+'_vno_sel');
-  if(sel.value) document.getElementById('i'+id+'_vno').value = sel.value;
+  const sel = document.getElementById('i'+id+'_vendor_sel');
+  if(sel.value) document.getElementById('i'+id+'_vendor').value = sel.value;
 }
 
 // ── INIT ───────────────────────────────────────────────────────────────────────
