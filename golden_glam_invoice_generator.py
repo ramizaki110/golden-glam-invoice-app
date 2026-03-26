@@ -4,6 +4,8 @@ import tempfile
 from pathlib import Path
 from datetime import datetime
 
+from PIL import Image as PILImage
+
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -45,19 +47,42 @@ def fmt_date_for_footer(date_str: str) -> str:
 
 
 def _decode_image(image_value: str) -> str | None:
+    """
+    Decode image and flatten transparency onto WHITE so it never renders black.
+    """
     if not image_value:
         return None
 
-    if not image_value.startswith("data:image"):
-        return image_value if os.path.exists(image_value) else None
-
     try:
-        header, b64 = image_value.split(",", 1)
-        ext = "png" if "png" in header.lower() else "jpg"
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}")
-        tmp.write(base64.b64decode(b64))
-        tmp.close()
-        return tmp.name
+        if image_value.startswith("data:image"):
+            _, b64 = image_value.split(",", 1)
+            raw = base64.b64decode(b64)
+            tmp_in = tempfile.NamedTemporaryFile(delete=False, suffix=".img")
+            tmp_in.write(raw)
+            tmp_in.close()
+            src_path = tmp_in.name
+        else:
+            if not os.path.exists(image_value):
+                return None
+            src_path = image_value
+
+        img = PILImage.open(src_path).convert("RGBA")
+
+        white_bg = PILImage.new("RGBA", img.size, (255, 255, 255, 255))
+        white_bg.paste(img, (0, 0), img)
+
+        out = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        white_bg.save(out.name, format="PNG")
+        out.close()
+
+        if image_value.startswith("data:image"):
+            try:
+                os.remove(src_path)
+            except Exception:
+                pass
+
+        return out.name
+
     except Exception:
         return None
 
@@ -233,9 +258,9 @@ def draw_invoice(inv, output_path):
     doc = SimpleDocTemplate(
         output_path,
         pagesize=letter,
-        leftMargin=0.45 * inch,
-        rightMargin=0.45 * inch,
-        topMargin=0.32 * inch,
+        leftMargin=0.35 * inch,
+        rightMargin=0.35 * inch,
+        topMargin=0.28 * inch,
         bottomMargin=1.00 * inch,
     )
     doc._gg_invoice = inv
@@ -285,14 +310,14 @@ def draw_invoice(inv, output_path):
         spaceAfter=6,
     )
 
-    # Bigger, non-squished centered logo
+    # Bigger / wider logo
     if LOGO_PATH.exists():
-        logo = Image(str(LOGO_PATH), width=2.25 * inch, height=1.10 * inch)
+        logo = Image(str(LOGO_PATH), width=2.55 * inch, height=1.05 * inch)
         logo.hAlign = "CENTER"
         elements.append(logo)
         elements.append(Spacer(1, 10))
 
-    # Left block aligned to true left margin and same width as content area
+    # True left aligned full-width client block
     client_rows = [
         [Paragraph("Tel. | Mob.:", label_style), Paragraph(inv.get("client_phone", ""), value_style)],
         [Paragraph("Name:", label_style), Paragraph(inv.get("client_name", ""), value_style)],
@@ -307,7 +332,7 @@ def draw_invoice(inv, output_path):
             Paragraph(line, value_style),
         ])
 
-    client_tbl = Table(client_rows, colWidths=[1.05 * inch, 5.65 * inch])
+    client_tbl = Table(client_rows, colWidths=[1.05 * inch, 6.05 * inch])
     client_tbl.setStyle(TableStyle([
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
@@ -324,7 +349,7 @@ def draw_invoice(inv, output_path):
         ["Invoice Date:", "Invoice", "Client No:", "Your Reference:"],
         [inv.get("date", ""), inv.get("number", ""), str(inv.get("client_no", "")), inv.get("reference", "")],
     ]
-    meta_tbl = Table(meta_data, colWidths=[1.35 * inch, 1.30 * inch, 1.25 * inch, 2.85 * inch])
+    meta_tbl = Table(meta_data, colWidths=[1.45 * inch, 1.40 * inch, 1.35 * inch, 3.15 * inch])
     meta_tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), BLACK),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -378,7 +403,7 @@ def draw_invoice(inv, output_path):
 
     item_tbl = Table(
         rows,
-        colWidths=[0.65 * inch, 1.95 * inch, 0.95 * inch, 0.55 * inch, 0.35 * inch, 0.72 * inch, 0.43 * inch, 0.58 * inch, 0.92 * inch]
+        colWidths=[0.68 * inch, 2.05 * inch, 0.95 * inch, 0.55 * inch, 0.35 * inch, 0.72 * inch, 0.43 * inch, 0.58 * inch, 0.92 * inch]
     )
     item_tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), BLACK),
@@ -405,7 +430,6 @@ def draw_invoice(inv, output_path):
         elements.append(Paragraph(f"<b>{inv.get('delivery_type')}</b>", cell_style))
         elements.append(Spacer(1, 4))
 
-    # Line below Sales Tax and below Total
     totals_tbl = Table([
         ["SubTotal", usd(subtotal)],
         ["Delivery Charge", usd(delivery_charge)],
@@ -424,7 +448,7 @@ def draw_invoice(inv, output_path):
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
 
-    totals_wrap = Table([["", totals_tbl]], colWidths=[4.55 * inch, 2.15 * inch])
+    totals_wrap = Table([["", totals_tbl]], colWidths=[4.85 * inch, 2.15 * inch])
     totals_wrap.setStyle(TableStyle([
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
