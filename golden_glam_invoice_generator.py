@@ -34,21 +34,19 @@ DARK = colors.HexColor("#4a4745")
 MID = colors.HexColor("#8c8a87")
 BORDER = colors.HexColor("#d8d5d2")
 
-# Same overall width used by all major blocks
-CONTENT_WIDTH = 7.20 * inch
-
-# Item table widths must sum to CONTENT_WIDTH
+CONTENT_WIDTH = 7.30 * inch
 ITEM_COL_WIDTHS = [
-    0.62 * inch,  # item no
-    1.92 * inch,  # description
+    0.66 * inch,  # item no
+    2.10 * inch,  # description
     0.92 * inch,  # est del
     0.52 * inch,  # type
     0.34 * inch,  # qty
-    0.68 * inch,  # unit price
-    0.40 * inch,  # disc
-    0.56 * inch,  # total
-    1.24 * inch,  # photo
+    0.72 * inch,  # unit price
+    0.42 * inch,  # disc
+    0.58 * inch,  # total
+    1.04 * inch,  # photo
 ]
+assert round(sum(ITEM_COL_WIDTHS), 4) == round(CONTENT_WIDTH, 4)
 
 
 def usd(v: float) -> str:
@@ -63,15 +61,15 @@ def fmt_date_for_footer(date_str: str) -> str:
         return date_str or ""
 
 
-def _is_dark_pixel(px, threshold=45):
+def _is_dark_pixel(px, threshold=60):
     r, g, b, a = px
     return a > 0 and r <= threshold and g <= threshold and b <= threshold
 
 
-def _whiten_edge_black_background(img_rgba: PILImage.Image, threshold=45) -> PILImage.Image:
+def _whiten_edge_connected_dark(img_rgba: PILImage.Image, threshold=60) -> PILImage.Image:
     """
-    Replaces connected near-black background coming from the outer edges with white.
-    This helps when source images already have black background baked in.
+    Flood-fill from the image edges and turn dark edge-connected pixels white.
+    This fixes common product cutouts that arrive with black canvas background.
     """
     img = img_rgba.copy()
     w, h = img.size
@@ -80,7 +78,6 @@ def _whiten_edge_black_background(img_rgba: PILImage.Image, threshold=45) -> PIL
     visited = set()
     q = deque()
 
-    # Seed flood fill from edges only
     for x in range(w):
         q.append((x, 0))
         q.append((x, h - 1))
@@ -97,7 +94,7 @@ def _whiten_edge_black_background(img_rgba: PILImage.Image, threshold=45) -> PIL
         if x < 0 or y < 0 or x >= w or y >= h:
             continue
 
-        if _is_dark_pixel(px[x, y], threshold=threshold):
+        if _is_dark_pixel(px[x, y], threshold):
             px[x, y] = (255, 255, 255, 255)
             for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
                 if 0 <= nx < w and 0 <= ny < h and (nx, ny) not in visited:
@@ -108,10 +105,10 @@ def _whiten_edge_black_background(img_rgba: PILImage.Image, threshold=45) -> PIL
 
 def _decode_image(image_value: str) -> str | None:
     """
-    Decode image and force a white background:
+    Decode image and force a white background robustly:
     - preserve transparency if present
-    - flatten transparency onto white
-    - whiten connected near-black background from edges
+    - whiten dark edge-connected backgrounds
+    - flatten onto white
     """
     if not image_value:
         return None
@@ -130,11 +127,8 @@ def _decode_image(image_value: str) -> str | None:
             src_path = image_value
 
         img = PILImage.open(src_path).convert("RGBA")
+        img = _whiten_edge_connected_dark(img, threshold=60)
 
-        # First, whiten edge-connected black background
-        img = _whiten_edge_black_background(img, threshold=45)
-
-        # Then flatten onto white
         white_bg = PILImage.new("RGBA", img.size, (255, 255, 255, 255))
         white_bg.paste(img, (0, 0), img)
 
@@ -325,9 +319,9 @@ def draw_invoice(inv, output_path):
     doc = SimpleDocTemplate(
         output_path,
         pagesize=letter,
-        leftMargin=0.30 * inch,
-        rightMargin=0.30 * inch,
-        topMargin=0.28 * inch,
+        leftMargin=0.28 * inch,
+        rightMargin=0.28 * inch,
+        topMargin=0.26 * inch,
         bottomMargin=1.00 * inch,
     )
     doc._gg_invoice = inv
@@ -377,14 +371,12 @@ def draw_invoice(inv, output_path):
         spaceAfter=6,
     )
 
-    # Bigger, wider logo
     if LOGO_PATH.exists():
-        logo = Image(str(LOGO_PATH), width=2.70 * inch, height=1.10 * inch)
+        logo = Image(str(LOGO_PATH), width=2.85 * inch, height=1.08 * inch)
         logo.hAlign = "CENTER"
         elements.append(logo)
         elements.append(Spacer(1, 10))
 
-    # Everything starts from true left margin
     client_rows = [
         [Paragraph("Tel. | Mob.:", label_style), Paragraph(inv.get("client_phone", ""), value_style)],
         [Paragraph("Name:", label_style), Paragraph(inv.get("client_name", ""), value_style)],
@@ -412,12 +404,13 @@ def draw_invoice(inv, output_path):
 
     elements.append(Paragraph("Invoice", invoice_title_style))
 
-    # Same width as item table
+    # EXACT same total width as item table
+    meta_widths = [1.45 * inch, 1.40 * inch, 1.35 * inch, CONTENT_WIDTH - 1.45 * inch - 1.40 * inch - 1.35 * inch]
     meta_data = [
         ["Invoice Date:", "Invoice", "Client No:", "Your Reference:"],
         [inv.get("date", ""), inv.get("number", ""), str(inv.get("client_no", "")), inv.get("reference", "")],
     ]
-    meta_tbl = Table(meta_data, colWidths=[1.45 * inch, 1.40 * inch, 1.35 * inch, CONTENT_WIDTH - 1.45 * inch - 1.40 * inch - 1.35 * inch])
+    meta_tbl = Table(meta_data, colWidths=meta_widths)
     meta_tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), BLACK),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -451,7 +444,7 @@ def draw_invoice(inv, output_path):
         if img_path:
             temp_images.append(img_path)
             try:
-                img = Image(img_path, width=0.82 * inch, height=0.52 * inch)
+                img = Image(img_path, width=0.80 * inch, height=0.50 * inch)
                 img.hAlign = "CENTER"
                 photo_cell = img
             except Exception:
@@ -491,7 +484,7 @@ def draw_invoice(inv, output_path):
     tax_amt = (subtotal + delivery_charge) * (inv.get("tax_rate", 0) or 0)
     total = subtotal + delivery_charge + tax_amt
 
-    # White Glove Delivery right aligned
+    # Right aligned delivery label
     if inv.get("delivery_type"):
         delivery_tbl = Table([[Paragraph(f"<b>{inv.get('delivery_type')}</b>", cell_style)]], colWidths=[CONTENT_WIDTH])
         delivery_tbl.setStyle(TableStyle([
