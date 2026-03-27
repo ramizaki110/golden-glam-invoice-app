@@ -1,1551 +1,879 @@
-
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Golden Glam — Invoice Generator</title>
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  :root {
-    --black: #231f1e;
-    --dark: #4a4745;
-    --mid: #8c8a87;
-    --border: #e0dedd;
-    --bg: #faf9f8;
-    --surface: #ffffff;
-    --accent: #231f1e;
-    --gold: #b8963e;
-    --danger: #c0392b;
-    --green: #1d6a3e;
-    --radius: 8px;
-    --shadow: 0 1px 3px rgba(0,0,0,0.08);
-  }
-  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--black); font-size: 14px; }
-
-  /* ── LAYOUT ── */
-  .shell { display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }
-  .sidebar { background: var(--black); color: #e8e4df; padding: 0; position: sticky; top: 0; height: 100vh; overflow-y: auto; display: flex; flex-direction: column; }
-  .main { padding: 2rem; max-width: 860px; }
-
-  /* ── SIDEBAR ── */
-  .sidebar-logo { padding: 1.5rem 1.25rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.08); }
-  .sidebar-logo .brand { font-size: 11px; letter-spacing: 3px; color: #b8963e; font-weight: 600; text-transform: uppercase; }
-  .sidebar-logo .sub { font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 2px; }
-  .nav-section { padding: 1rem 1.25rem 0.25rem; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: rgba(255,255,255,0.3); }
-  .nav-btn { display: block; width: 100%; text-align: left; padding: 0.55rem 1.25rem; background: none; border: none; color: rgba(255,255,255,0.65); font-size: 13px; cursor: pointer; border-left: 2px solid transparent; transition: all .15s; }
-  .nav-btn:hover { color: #fff; background: rgba(255,255,255,0.05); }
-  .nav-btn.active { color: #fff; border-left-color: var(--gold); background: rgba(184,150,62,0.08); }
-  .sidebar-footer { margin-top: auto; padding: 1rem 1.25rem; font-size: 11px; color: rgba(255,255,255,0.25); border-top: 1px solid rgba(255,255,255,0.06); }
-
-  /* ── TABS ── */
-  .tab-panel { display: none; } .tab-panel.active { display: block; }
-
-  /* ── CARDS ── */
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem 1.5rem; margin-bottom: 1rem; box-shadow: var(--shadow); }
-  .card-title { font-size: 13px; font-weight: 600; color: var(--dark); letter-spacing: 0.3px; margin-bottom: 1rem; padding-bottom: 0.6rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
-
-  /* ── FORM ── */
-  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
-  .grid4 { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 10px; }
-  .field { margin-bottom: 0.7rem; }
-  .field:last-child { margin-bottom: 0; }
-  label { font-size: 11.5px; font-weight: 600; color: var(--dark); display: block; margin-bottom: 4px; letter-spacing: 0.2px; }
-  label .internal { font-size: 10px; font-weight: 400; color: var(--mid); background: #f0ede8; padding: 1px 6px; border-radius: 10px; margin-left: 5px; }
-  input, select, textarea { width: 100%; font-size: 13px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--black); font-family: inherit; transition: border-color .15s; }
-  input:focus, select:focus, textarea:focus { outline: none; border-color: #999; }
-  textarea { resize: vertical; }
-
-  /* ── BUTTONS ── */
-  .btn { font-size: 12.5px; padding: 7px 16px; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--black); cursor: pointer; font-family: inherit; transition: all .15s; font-weight: 500; }
-  .btn:hover { background: #f5f2ef; }
-  .btn-primary { background: var(--black); color: #fff; border-color: var(--black); }
-  .btn-primary:hover { background: #3a3532; }
-  .btn-gold { background: var(--gold); color: #fff; border-color: var(--gold); }
-  .btn-gold:hover { background: #a07c30; }
-  .btn-danger { color: var(--danger); border-color: #f0c4c0; }
-  .btn-danger:hover { background: #fff5f4; }
-  .btn-sm { font-size: 11.5px; padding: 4px 10px; }
-  .btn-xs { font-size: 11px; padding: 3px 8px; }
-
-  /* ── ITEM ROWS ── */
-  .item-block { border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; margin-bottom: 0.75rem; background: #fdfcfb; position: relative; }
-  .item-block-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
-  .item-num { font-size: 11px; font-weight: 700; color: var(--mid); letter-spacing: 1px; text-transform: uppercase; }
-  .line-total-badge { font-size: 13px; font-weight: 700; color: var(--black); }
-  .gm-pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; margin-left: 6px; }
-  .gm-good { background: #d4edda; color: #155724; }
-  .gm-warn { background: #fff3cd; color: #856404; }
-  .gm-bad  { background: #f8d7da; color: #721c24; }
-  .img-preview { width: 64px; height: 64px; object-fit: cover; border-radius: 5px; border: 1px solid var(--border); }
-
-  /* ── TOTALS ── */
-  .totals-box { background: #fdfcfb; border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.25rem; }
-  .tot-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
-  .tot-row.total-final { font-weight: 700; font-size: 15px; border-top: 1.5px solid var(--black); margin-top: 4px; padding-top: 8px; }
-
-  /* ── PROFIT PANEL ── */
-  .profit-panel { background: #f0f7f2; border: 1px solid #b8ddc8; border-radius: var(--radius); padding: 1rem 1.25rem; margin-top: 0.5rem; }
-  .profit-panel .ptitle { font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--green); margin-bottom: 0.5rem; }
-  .profit-row { display: flex; justify-content: space-between; font-size: 12.5px; padding: 3px 0; color: #1d4a30; }
-  .profit-row.total { font-weight: 700; border-top: 1px solid #b8ddc8; margin-top: 4px; padding-top: 6px; }
-
-  /* ── SAVED TABLES ── */
-  .saved-list { display: flex; flex-direction: column; gap: 6px; }
-  .saved-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: #fdfcfb; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
-  .saved-row .name { font-weight: 600; }
-  .saved-row .meta { font-size: 11.5px; color: var(--mid); }
-  .empty-msg { font-size: 13px; color: var(--mid); padding: 1rem 0; }
-
-  /* ── SUMMARY OUTPUT ── */
-  .summary-box { background: #fdfcfb; border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; font-size: 12px; font-family: 'Courier New', monospace; white-space: pre-wrap; max-height: 340px; overflow-y: auto; color: var(--black); }
-
-  /* ── PAGE TITLE ── */
-  .page-title { font-size: 20px; font-weight: 700; margin-bottom: 0.25rem; }
-  .page-sub { font-size: 13px; color: var(--mid); margin-bottom: 1.5rem; }
-
-  /* ── MISC ── */
-  .row-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-  .divider { height: 1px; background: var(--border); margin: 1rem 0; }
-  .hint { font-size: 11.5px; color: var(--mid); margin-top: 3px; }
-  .badge-internal { font-size: 10px; background: #fff3cd; color: #856404; border: 1px solid #ffd96a; padding: 1px 6px; border-radius: 10px; }
-</style>
-</head>
-<body>
-
-<div class="shell">
-
-<!-- ── SIDEBAR ── -->
-<nav class="sidebar">
-  <div class="sidebar-logo">
-    <div class="brand">Golden Glam</div>
-    <div class="sub">Invoice Generator</div>
-  </div>
-  <div class="nav-section">Create</div>
-  <button class="nav-btn active" onclick="showTab('invoice',this)">🧾 New Invoice</button>
-  <button class="nav-btn" onclick="showTab('invoicelib',this)">📁 Invoice Library</button>
-  <div class="nav-section">Manage</div>
-  <button class="nav-btn" onclick="showTab('clients',this)">👤 Client Book</button>
-  <button class="nav-btn" onclick="showTab('items',this)">📦 Item Library</button>
-  <button class="nav-btn" onclick="showTab('vendors',this)">🏭 Vendor Book</button>
-  <div class="nav-section">Export</div>
-  <button class="nav-btn" onclick="showTab('export',this)">📄 Summary & Export</button>
-  <div class="sidebar-footer">GoldenGlam_InvoiceGenerator.html<br>Open in any browser • No login needed</div>
-</nav>
-
-<!-- ── MAIN ── -->
-<main class="main">
-
-<!-- ════ NEW INVOICE TAB ════ -->
-<div id="tab-invoice" class="tab-panel active">
-  <div class="page-title">New Invoice</div>
-  <div class="page-sub">Fill in the details, then go to Summary &amp; Export to generate your text block.</div>
-
-  <!-- Invoice header -->
-  <div class="card">
-    <div class="card-title">📋 Invoice details</div>
-    <div class="grid3">
-      <div class="field"><label>Invoice number</label><input id="inv_num" value="SI1000160"></div>
-      <div class="field"><label>Invoice date</label><input id="inv_date" type="date"></div>
-      <div class="field"><label>Your reference</label><input id="inv_ref" placeholder="e.g. Living room rug"></div>
-    </div>
-  </div>
-
-  <!-- Client -->
-  <div class="card">
-    <div class="card-title">👤 Client
-      <select id="client_select" style="font-size:12px;padding:4px 8px;margin-left:auto;width:auto" onchange="loadClient()">
-        <option value="">— select saved client —</option>
-      </select>
-    </div>
-    <div class="grid2">
-      <div class="field"><label>Client name</label><input id="client_name" placeholder="Samyukth and Anisha"></div>
-      <div class="field"><label>Client No.</label><input id="client_no" placeholder="2927"></div>
-    </div>
-    <div class="grid2">
-      <div class="field"><label>Phone / Mob.</label><input id="client_phone"></div>
-      <div class="field"><label>Email <span style="font-size:10px;color:var(--mid)">(optional)</span></label><input id="client_email" type="email"></div>
-    </div>
-    <div class="field"><label>Delivery address</label><textarea id="client_addr" rows="2" placeholder="Street&#10;City, State ZIP"></textarea></div>
-    <button class="btn btn-sm" onclick="saveClientFromForm()" style="margin-top:6px">Save client →</button>
-  </div>
-
-  <!-- Line items -->
-  <div class="card">
-    <div class="card-title">📦 Line items
-      <div class="row-actions" style="margin-left:auto">
-        <select id="delivery_type" style="font-size:12px;padding:4px 8px;width:auto" onchange="toggleDeliveryCustom()">
-          <option value="White Glove Delivery">White Glove Delivery</option>
-          <option value="Standard Delivery">Standard Delivery</option>
-          <option value="__custom__">Custom text…</option>
-          <option value="">No delivery label</option>
-        </select>
-        <input id="delivery_type_custom" placeholder="e.g. Express Delivery" style="font-size:12px;padding:4px 8px;display:none;width:160px">
-        <button class="btn btn-sm btn-primary" onclick="addItem()">+ Add item</button>
-      </div>
-    </div>
-    <div id="items-container"></div>
-    <div class="grid3" style="margin-top:1rem">
-      <div class="field"><label>Delivery charge ($)</label><input id="delivery_charge" type="number" value="0" min="0" oninput="recalc()"></div>
-      <div class="field"><label>Sales tax rate (%)</label><input id="tax_rate" type="number" value="8.0" step="0.1" oninput="recalc()"></div>
-      <div class="field"><label>Payment terms</label>
-        <select id="payment_terms" onchange="toggleInstallments()">
-          <option value="advance">Paid in advance</option>
-          <option value="installments">Paid in installments</option>
-        </select>
-      </div>
-    </div>
-
-    <div class="totals-box" id="totals-box">
-      <div class="tot-row"><span>SubTotal</span><span id="t-sub">$0</span></div>
-      <div class="tot-row"><span>Delivery charge</span><span id="t-del">$0</span></div>
-      <div class="tot-row"><span>Sales tax</span><span id="t-tax">$0</span></div>
-      <div class="tot-row total-final"><span>Total</span><span id="t-total">$0</span></div>
-    </div>
-
-    <div class="profit-panel" id="profit-panel" style="display:none">
-      <div class="ptitle">🔒 Internal profit summary</div>
-      <div id="profit-rows"></div>
-    </div>
-  </div>
-
-  <!-- Installment plan -->
-  <div class="card" id="installment-card" style="display:none">
-    <div class="card-title">💳 Payment plan</div>
-
-    <!-- Step 1: choose count + split type -->
-    <div id="installment-setup" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">
-      <div class="field" style="margin:0;min-width:160px">
-        <label style="font-size:11px">Number of installments</label>
-        <select id="installment_count_sel" onchange="setupInstallmentRows()" style="margin-top:4px">
-          <option value="">— choose —</option>
-          <option value="2">2 installments</option>
-          <option value="3">3 installments</option>
-          <option value="4">4 installments</option>
-          <option value="5">5 installments</option>
-        </select>
-      </div>
-      <div class="field" style="margin:0;min-width:160px">
-        <label style="font-size:11px">Split by</label>
-        <select id="installment_split_type" onchange="recalcInstallments()" style="margin-top:4px">
-          <option value="amount">Amount ($)</option>
-          <option value="pct">Percentage (%)</option>
-        </select>
-      </div>
-    </div>
-
-    <div id="installment-rows"></div>
-    <div id="installment-validation" style="font-size:12px;margin-top:8px;padding:6px 10px;border-radius:4px;display:none"></div>
-  </div>
-
-  <!-- Notes -->
-  <div class="card">
-    <div class="card-title">📝 Notes</div>
-    <textarea id="inv_notes" rows="2" placeholder="e.g. Note: Our fixtures do not come with bulbs..."></textarea>
-  </div>
-
-  <div class="row-actions">
-    <button class="btn btn-gold" onclick="showTab('export', document.querySelector('.nav-btn:nth-child(8)'))">Summary &amp; Export →</button>
-    <button class="btn btn-primary" onclick="saveCurrentInvoice()">💾 Save invoice</button>
-    <button class="btn" onclick="clearAll()">Clear all</button>
-  </div>
-</div>
-
-
-<!-- ════ INVOICE LIBRARY TAB ════ -->
-<div id="tab-invoicelib" class="tab-panel">
-  <div class="page-title">Invoice Library</div>
-  <div class="page-sub">Save and reload past invoices. Saved invoices include all line items, client details, pricing and photos.</div>
-
-  <div class="card">
-    <div class="card-title">Saved invoices
-      <button class="btn btn-sm btn-primary" onclick="saveCurrentInvoice()" style="margin-left:auto">💾 Save current invoice</button>
-    </div>
-    <div id="invoice-library-list" class="saved-list">
-      <div class="empty-msg">No saved invoices yet. Fill in a New Invoice then click "Save current invoice".</div>
-    </div>
-  </div>
-</div>
-
-
-<!-- ════ CLIENTS TAB ════ -->
-<div id="tab-clients" class="tab-panel">
-  <div class="page-title">Client Book</div>
-  <div class="page-sub">Pre-loaded clients appear automatically. Add your own and they'll be saved in this browser.</div>
-  <div class="card">
-    <div class="card-title">Saved clients</div>
-    <div id="client-list" class="saved-list"></div>
-  </div>
-  <div class="card">
-    <div class="card-title">Add new client</div>
-    <div class="grid2">
-      <div class="field"><label>Name</label><input id="nc_name"></div>
-      <div class="field"><label>Client No.</label><input id="nc_no"></div>
-    </div>
-    <div class="grid2">
-      <div class="field"><label>Phone</label><input id="nc_phone"></div>
-      <div class="field"><label>Email</label><input id="nc_email" type="email"></div>
-    </div>
-    <div class="field"><label>Address</label><textarea id="nc_addr" rows="2"></textarea></div>
-    <button class="btn btn-primary btn-sm" onclick="saveNewClient()" style="margin-top:8px">Save client</button>
-  </div>
-</div>
-
-
-<!-- ════ ITEMS TAB ════ -->
-<div id="tab-items" class="tab-panel">
-  <div class="page-title">Item Library</div>
-  <div class="page-sub">Save frequently ordered items. Cost and vendor number are internal and never sent to clients.</div>
-  <div class="card">
-    <div class="card-title">Saved items</div>
-    <div id="item-library-list" class="saved-list"></div>
-  </div>
-  <div class="card">
-    <div class="card-title">Add item to library</div>
-    <div class="grid2">
-      <div class="field"><label>Item No. (customer)</label><input id="ni_no"></div>
-      <div class="field">
-        <label>Vendor name <span class="badge-internal">internal</span></label>
-        <select id="ni_vendor_sel" style="margin-bottom:3px" onchange="applyLibVendorSel()">
-          <option value="">— select vendor —</option>
-        </select>
-        <input id="ni_vendor_name" placeholder="or type vendor name">
-      </div>
-      <div class="field"><label>Vendor No. <span class="badge-internal">internal</span></label><input id="ni_vendor_no" placeholder="e.g. UTT-34343"></div>
-    </div>
-    <div class="field"><label>Description</label><input id="ni_desc" placeholder="Item name | dimensions"></div>
-    <div class="field"><label>Est. delivery</label><input id="ni_del" placeholder="e.g. In Stock / Mid March"></div>
-    <div class="grid3">
-      <div class="field"><label>Unit list price ($)</label><input id="ni_price" type="number" oninput="recalcLibNet('price')"></div>
-      <div class="field"><label>Discount (%)</label><input id="ni_disc" type="number" placeholder="e.g. 28" step="0.1" oninput="recalcLibNet('disc')"></div>
-      <div class="field"><label>Net price ($) <span style="font-size:10px;color:var(--mid);font-weight:400">after disc.</span></label><input id="ni_net" type="number" step="0.01" placeholder="or fill this" oninput="recalcLibNet('net')"></div>
-    </div>
-    <div class="grid3">
-      <div class="field"><label>Unit cost before disc. ($) <span class="badge-internal">internal</span></label><input id="ni_raw_cost" type="number" placeholder="e.g. 799" oninput="recalcLibCost()"></div>
-      <div class="field"><label>Cost discount (%) <span class="badge-internal">internal</span></label><input id="ni_cost_disc" type="number" placeholder="e.g. 20" oninput="recalcLibCost()"></div>
-      <div class="field"><label>Unit cost ($) <span class="badge-internal">auto-calculated</span></label><input id="ni_cost" type="number" style="background:#f5f2ef"></div>
-      <div class="field">
-        <label>Type</label>
-        <select id="ni_unit" onchange="toggleLibSetOf()">
-          <option value="Piece">Piece</option>
-          <option value="Set of 2">Set of 2</option>
-          <option value="Set of 3">Set of 3</option>
-          <option value="Set of 4">Set of 4</option>
-          <option value="Set of 5">Set of 5</option>
-          <option value="other">Other…</option>
-        </select>
-        <input id="ni_unit_custom" placeholder="e.g. Set of 6" style="margin-top:4px;display:none">
-      </div>
-      <div class="field"></div>
-    </div>
-    <button class="btn btn-primary btn-sm" onclick="saveLibItem()" style="margin-top:8px">Save to library</button>
-  </div>
-</div>
-
-
-<!-- ════ VENDOR TAB ════ -->
-<div id="tab-vendors" class="tab-panel">
-  <div class="page-title">Vendor Book</div>
-  <div class="page-sub">Save vendor names so they appear in the dropdown on each line item. Vendor names appear in the internal Excel report.</div>
-  <div class="card">
-    <div class="card-title">Saved vendors</div>
-    <div id="vendor-list" class="saved-list"></div>
-  </div>
-  <div class="card">
-    <div class="card-title">Add new vendor</div>
-    <div class="grid2">
-      <div class="field"><label>Vendor name</label><input id="nv_name" placeholder="e.g. Uttermost"></div>
-      <div class="field"><label>Vendor No. prefix <span style="font-size:10px;font-weight:400;color:var(--mid)">(optional)</span></label><input id="nv_code" placeholder="e.g. UTT"></div>
-    </div>
-    <button class="btn btn-primary btn-sm" onclick="saveNewVendor()" style="margin-top:8px">Save vendor</button>
-  </div>
-</div>
-
-
-<!-- ════ EXPORT TAB ════ -->
-<div id="tab-export" class="tab-panel">
-  <div class="page-title">Summary &amp; Export</div>
-  <div class="page-sub">Review your invoice summary below, then generate both the PDF and internal Excel directly from this hosted app.</div>
-  <div class="card">
-    <div class="card-title">Invoice summary
-      <button class="btn btn-sm btn-primary" onclick="buildSummary()" style="margin-left:auto">Refresh</button>
-      <button class="btn btn-sm btn-gold" onclick="generateFiles()">Generate PDF + Excel</button>
-      <button class="btn btn-sm" onclick="copySummary()">Copy</button>
-    </div>
-    <div style="background:#f0f7f2;border:1px solid #b8ddc8;border-radius:6px;padding:10px 14px;font-size:12.5px;color:#1d4a30;margin-bottom:1rem">
-      ✅ <strong>Photos are embedded automatically & compressed.</strong> If you uploaded product photos in the invoice tab, they are automatically compressed (max 500px, optimised quality) and included in the summary below — no need to upload them again to Claude. This keeps the summary small enough to paste without hitting Claude's context limit.
-    </div>
-    <div class="summary-box" id="summary-out">← Fill in the invoice tab first, then click Refresh.</div>
-  </div>
-
-  <div class="card">
-    <div class="card-title">📋 How to generate an invoice</div>
-
-    <!-- Step 1 — always the same -->
-    <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gold);margin-bottom:0.5rem">Step 1 — Fill in the invoice</div>
-    <ol style="font-size:13px;line-height:2;color:var(--dark);padding-left:1.25rem;margin-bottom:1rem">
-      <li>Go to the <strong>New Invoice</strong> tab — fill in invoice number, date, and optional reference</li>
-      <li>Select or fill in <strong>Client</strong> details</li>
-      <li>Click <strong>+ Add item</strong> for each product — description, item no., vendor, qty, price, discount, and optional photo</li>
-      <li>Set delivery charge, sales tax, delivery type, and payment terms</li>
-      <li>Add any notes to appear on the invoice</li>
-    </ol>
-
-    <div class="divider"></div>
-
-    <!-- Two options -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-
-      <!-- Option A: Direct from app -->
-      <div style="background:#f0f7f2;border:1px solid #b8ddc8;border-radius:8px;padding:1rem">
-        <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#1d6a3e;margin-bottom:0.6rem">⚡ Option A — Direct from this app</div>
-        <ol style="font-size:13px;line-height:2;color:var(--dark);padding-left:1.25rem;margin-bottom:0.75rem">
-          <li>Come to the <strong>Summary &amp; Export</strong> tab</li>
-          <li>Click <strong>Refresh</strong> to build the summary</li>
-          <li>Click <strong>Generate PDF + Excel</strong></li>
-          <li>Both files download automatically</li>
-        </ol>
-        <div style="font-size:11.5px;color:#1d4a30">✅ Fastest — no Claude needed</div>
-      </div>
-
-      <!-- Option B: Via Claude -->
-      <div style="background:#f5f2ef;border:1px solid var(--border);border-radius:8px;padding:1rem">
-        <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gold);margin-bottom:0.6rem">🤖 Option B — Via Claude</div>
-        <ol style="font-size:13px;line-height:2;color:var(--dark);padding-left:1.25rem;margin-bottom:0.75rem">
-          <li>Click <strong>Refresh</strong> then <strong>Copy</strong></li>
-          <li>Open a new <strong>Claude chat</strong></li>
-          <li>Upload <code style="background:#ede9e3;padding:1px 4px;border-radius:3px;font-size:11px">golden_glam_invoice_generator.py</code> + <code style="background:#ede9e3;padding:1px 4px;border-radius:3px;font-size:11px">golden_glam_logo_final.png</code></li>
-          <li>Paste the summary and send:<br><code style="background:#ede9e3;padding:2px 6px;border-radius:3px;font-size:11px;display:inline-block;margin-top:2px">Generate the PDF invoice from this summary using my script</code></li>
-          <li>Download both files Claude returns</li>
-        </ol>
-        <div style="font-size:11.5px;color:var(--mid)">Use when the hosted app is unavailable</div>
-      </div>
-
-    </div>
-
-    <div class="divider"></div>
-
-    <div style="font-size:12px;font-weight:600;color:var(--mid);margin-bottom:6px">📄 Output files — always two, every time</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div style="background:#fdfcfb;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:12.5px">
-        <div style="font-weight:700;margin-bottom:2px">📄 Client PDF</div>
-        <code style="font-size:11px;color:var(--mid)">GG__SI&lt;NO&gt;_&lt;CLIENT&gt;.pdf</code>
-      </div>
-      <div style="background:#fdfcfb;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:12.5px">
-        <div style="font-weight:700;margin-bottom:2px">📊 Internal Excel</div>
-        <code style="font-size:11px;color:var(--mid)">GG__SI&lt;NO&gt;_&lt;CLIENT&gt;_INTERNAL.xlsx</code>
-      </div>
-    </div>
-  </div>
-</div>
-
-</main>
-</div>
-
-<script>
-// ── DATA STORE ─────────────────────────────────────────────────────────────────
-const PRESET_CLIENTS = [
-  {name:'Samyukth and Anisha',no:'2927',phone:'+1 773 619 3852 & 847 571 2445',email:'',addr:'1892 Pointe Place Avenue,\nDunwoody\nGA 30338'},
-  {name:'Rim Konelli',no:'2995',phone:'+1 404 514 1167',email:'',addr:'1172 Laurel Hill Way SW\nLawrenceville\nGA 30044'},
-  {name:'Gaana and Vik',no:'2207',phone:'+1 770 291 9657 & +1 847 636 8585',email:'Gaanagowda@gmail.com',addr:'431 Eastland Dr\nDecatur\nGA 30030'},
-];
-
-let customClients = [];
-let library       = [];
-let vendors       = [];
-let savedInvoices = [];
-
-// Load data from server on startup
-async function loadServerData(){
-  try {
-    const res = await fetch('/api/data');
-    const d = await res.json();
-    customClients = d.clients||[];
-    library       = d.library||[];
-    vendors       = d.vendors||[];
-    savedInvoices = d.invoices||[];
-    console.log('[GG] Loaded from Supabase:', {
-      clients: customClients.length,
-      library: library.length,
-      vendors: vendors.length,
-      invoices: savedInvoices.length
-    });
-    renderClientList(); refreshClientDropdown();
-    renderLibraryList(); refreshLibraryDropdowns();
-    renderVendorList();  refreshVendorDropdowns();
-    renderInvoiceLibrary();
-    if(customClients.length || vendors.length || savedInvoices.length || library.length){
-      _showSaveStatus(`✓ Loaded: ${customClients.length} clients, ${vendors.length} vendors, ${savedInvoices.length} invoices`);
-    }
-  } catch(e){
-    console.warn('Could not load server data:', e);
-    _showSaveStatus('⚠ Could not connect to server', true);
-  }
-}
-let items         = [];
-let itemCounter   = 0;
-
-function allClients(){ return [...PRESET_CLIENTS, ...customClients]; }
-async function persist(){
-  // Strip photos from invoices before saving to Supabase (photos are too large for DB)
-  // Photos are stored in _compressedImgs in-session only
-  const invoicesForDB = savedInvoices.map(inv => ({
-    ...inv,
-    lineItems: (inv.lineItems||[]).map(li => ({...li, photo:''}))
-  }));
-  try {
-    const res = await fetch('/api/data', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({clients:customClients, library:library, vendors:vendors, invoices:invoicesForDB})
-    });
-    const json = await res.json();
-    if(json.ok){
-      _showSaveStatus('✓ Saved');
-    } else {
-      _showSaveStatus('⚠ Save failed', true);
-      console.warn('Save failed:', json);
-    }
-  } catch(e){
-    _showSaveStatus('⚠ No connection', true);
-    console.warn('Save error:', e);
-  }
-}
-
-function _showSaveStatus(msg, isError=false){
-  let el = document.getElementById('_save_status');
-  if(!el){
-    el = document.createElement('div');
-    el.id = '_save_status';
-    el.style.cssText = 'position:fixed;bottom:16px;right:16px;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;z-index:9999;transition:opacity 0.5s';
-    document.body.appendChild(el);
-  }
-  el.textContent = msg;
-  el.style.background = isError ? '#f8d7da' : '#d4edda';
-  el.style.color = isError ? '#721c24' : '#155724';
-  el.style.opacity = '1';
-  clearTimeout(el._timer);
-  el._timer = setTimeout(() => el.style.opacity='0', isError ? 4000 : 2000);
-}
-
-// ── TABS ───────────────────────────────────────────────────────────────────────
-function showTab(id, btn){
-  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
-  document.getElementById('tab-'+id).classList.add('active');
-  if(btn) btn.classList.add('active');
-  if(id==='invoice')  refreshLibraryDropdowns();
-  if(id==='clients') renderClientList();
-  if(id==='items')   renderLibraryList();
-  if(id==='vendors') renderVendorList();
-  if(id==='invoicelib') renderInvoiceLibrary();
-  if(id==='items')   refreshVendorDropdowns();
-  if(id==='export')  buildSummary();
-  refreshClientDropdown();
-}
-
-// ── CLIENT DROPDOWN ────────────────────────────────────────────────────────────
-function refreshClientDropdown(){
-  const sel = document.getElementById('client_select');
-  const cur = sel.value;
-  sel.innerHTML = '<option value="">— select saved client —</option>';
-  allClients().forEach((c,i)=>{
-    const o = document.createElement('option');
-    o.value=i; o.textContent=c.name+(c.no?' ('+c.no+')':'');
-    sel.appendChild(o);
-  });
-  sel.value = cur;
-}
-function loadClient(){
-  const i = document.getElementById('client_select').value;
-  if(i==='') return;
-  const c = allClients()[parseInt(i)];
-  document.getElementById('client_name').value  = c.name||'';
-  document.getElementById('client_no').value    = c.no||'';
-  document.getElementById('client_phone').value = c.phone||'';
-  document.getElementById('client_email').value = c.email||'';
-  document.getElementById('client_addr').value  = c.addr||'';
-}
-function saveClientFromForm(){
-  const c={
-    name:document.getElementById('client_name').value.trim(),
-    no:document.getElementById('client_no').value.trim(),
-    phone:document.getElementById('client_phone').value.trim(),
-    email:document.getElementById('client_email').value.trim(),
-    addr:document.getElementById('client_addr').value.trim()
-  };
-  if(!c.name){ alert('Enter a client name'); return; }
-  const idx=customClients.findIndex(x=>x.no&&x.no===c.no);
-  if(idx>=0) customClients[idx]=c; else customClients.push(c);
-  persist(); refreshClientDropdown();
-  alert('Client saved!');
-}
-
-// ── UNIT TYPE HELPERS ──────────────────────────────────────────────────────────
-function toggleSetOf(id){
-  const sel = document.getElementById('i'+id+'_unit');
-  const custom = document.getElementById('i'+id+'_unit_custom');
-  if(sel.value === 'other'){ custom.style.display='block'; custom.focus(); }
-  else { custom.style.display='none'; }
-}
-
-function getUnit(id){
-  const sel = document.getElementById('i'+id+'_unit');
-  if(!sel) return 'Piece';
-  if(sel.value === 'other'){
-    return document.getElementById('i'+id+'_unit_custom')?.value || 'Piece';
-  }
-  return sel.value || 'Piece';
-}
-
-// ── RANDOM ITEM NUMBER ─────────────────────────────────────────────────────────
-function randNo(){ return Math.floor(Math.random() * (999999 - 123456 + 1)) + 123456; }
-function regenNo(id){ document.getElementById('i'+id+'_no').value = randNo(); }
-
-// ── ADD ITEM ───────────────────────────────────────────────────────────────────
-function addItem(pre={}){
-  const id = ++itemCounter;
-  items.push({id});
-  const autoNo = pre.no || randNo();
-
-  // Library dropdown is populated by refreshLibraryDropdowns() after DOM insert
-  const libOpts = '<option value="">— quick-add from library —</option>';
-
-  const div = document.createElement('div');
-  div.className='item-block'; div.id='item-'+id;
-  div.innerHTML=`
-    <div class="item-block-header">
-      <span class="item-num">Item #${id}</span>
-      <div class="row-actions">
-        <select id="lib_sel_${id}" style="font-size:12px;padding:3px 7px;width:auto" onchange="fillFromLib(${id},this.value)">${libOpts}</select>
-        <span class="line-total-badge" id="i${id}_badge">—</span>
-        <button class="btn btn-xs btn-danger" onclick="removeItem(${id})">Remove</button>
-      </div>
-    </div>
-    <div class="grid4">
-      <div class="field"><label>Description</label><input id="i${id}_desc" value="${pre.desc||''}" placeholder="Item name | dimensions" oninput="recalc()"></div>
-      <div class="field">
-        <label>Item No. <span style="font-size:10px;font-weight:400;color:var(--mid)">auto-generated</span></label>
-        <div style="display:flex;gap:5px;align-items:center">
-          <input id="i${id}_no" value="${autoNo}" style="flex:1">
-          <button class="btn btn-xs" onclick="regenNo(${id})" title="Generate new random number" style="padding:5px 8px;flex-shrink:0">↺</button>
-        </div>
-      </div>
-      <div class="field">
-        <label>Vendor <span class="badge-internal">internal</span></label>
-        <select id="i${id}_vendor_sel" style="margin-bottom:3px" onchange="applyVendorSel(${id})">
-          <option value="">— select vendor —</option>
-        </select>
-        <input id="i${id}_vendor" value="${pre.vendor||''}" placeholder="or type vendor name">
-      </div>
-      <div class="field"><label>Vendor No. <span class="badge-internal">internal</span></label><input id="i${id}_vno" value="${pre.vno||''}" placeholder="e.g. UTT-34343"></div>
-      <div class="field"><label>Qty</label><input type="number" id="i${id}_qty" value="${pre.qty||1}" min="1" oninput="recalc()"></div>
-    </div>
-    <div class="grid4">
-      <div class="field"><label>Est. delivery</label><input id="i${id}_del" value="${pre.del||''}" placeholder="In Stock / Mid March"></div>
-      <div class="field"><label>Unit list price ($)</label><input type="number" id="i${id}_price" value="${pre.price||''}" step="0.01" oninput="recalcNetPrice(${id},'price')"></div>
-      <div class="field"><label>Discount (%)</label><input type="number" id="i${id}_disc" value="${pre.disc||''}" step="0.1" min="0" max="100" placeholder="0" oninput="recalcNetPrice(${id},'disc')"></div>
-      <div class="field"><label>Net price ($) <span style="font-size:10px;color:var(--mid);font-weight:400">after disc.</span></label><input type="number" id="i${id}_net" value="${pre.net||(pre.price&&pre.disc?((pre.price*(1-pre.disc/100)).toFixed(2)):pre.price||'')}" step="0.01" placeholder="or fill this" oninput="recalcNetPrice(${id},'net')"></div>
-      <div class="field"></div>
-    </div>
-    <div class="grid4">
-      <div class="field"><label>Unit cost before disc. ($) <span class="badge-internal">internal</span></label><input type="number" id="i${id}_raw_cost" value="${pre.raw_cost||''}" step="0.01" placeholder="e.g. 799" oninput="recalcCost(${id})"></div>
-      <div class="field"><label>Cost discount (%) <span class="badge-internal">internal</span></label><input type="number" id="i${id}_cost_disc" value="${pre.cost_disc||''}" step="0.1" min="0" max="100" placeholder="e.g. 20" oninput="recalcCost(${id})"></div>
-      <div class="field"><label>Unit cost ($) <span class="badge-internal">internal — auto-calculated</span></label><input type="number" id="i${id}_cost" value="${pre.cost||''}" step="0.01" oninput="recalc()" style="background:#f5f2ef"></div>
-      <div class="field"></div>
-    </div>
-    <div class="grid4">
-      <div class="field">
-        <label>Type</label>
-        <select id="i${id}_unit" onchange="toggleSetOf(${id})">
-          <option value="Piece" ${(pre.unit||'Piece')==='Piece'?'selected':''}>Piece</option>
-          <option value="Set of 2" ${(pre.unit||'')==='Set of 2'?'selected':''}>Set of 2</option>
-          <option value="Set of 3" ${(pre.unit||'')==='Set of 3'?'selected':''}>Set of 3</option>
-          <option value="Set of 4" ${(pre.unit||'')==='Set of 4'?'selected':''}>Set of 4</option>
-          <option value="Set of 5" ${(pre.unit||'')==='Set of 5'?'selected':''}>Set of 5</option>
-          <option value="other">Other…</option>
-        </select>
-        <input id="i${id}_unit_custom" placeholder="e.g. Set of 6" style="margin-top:4px;display:${(pre.unit&&!['Piece','Set of 2','Set of 3','Set of 4','Set of 5'].includes(pre.unit)&&pre.unit!=='')?'block':'none'}" value="${(pre.unit&&!['Piece','Set of 2','Set of 3','Set of 4','Set of 5'].includes(pre.unit))?pre.unit:''}">
-      </div>
-      <div class="field" style="grid-column:span 3">
-        <label>Product photo <span style="font-size:10px;font-weight:400;color:var(--mid)">(shown in PDF — embedded automatically)</span></label>
-        <div style="display:flex;align-items:flex-start;gap:10px">
-          <div style="flex:1">
-            <input type="file" id="i${id}_imgfile" accept="image/*" onchange="previewImg(${id})" style="width:100%;font-size:12px">
-            <div class="hint" style="margin-top:4px">Photo travels with the summary — no re-upload needed</div>
-          </div>
-          <img id="i${id}_imgprev" style="display:none;width:140px;height:110px;object-fit:cover;border-radius:6px;border:1px solid var(--border);flex-shrink:0">
-        </div>
-      </div>
-    </div>`;
-  document.getElementById('items-container').appendChild(div);
-  refreshVendorDropdowns();
-  refreshLibraryDropdowns();
-  // If a photo was passed in (e.g. loading from invoice library), restore it immediately
-  if(pre.photo){
-    _compressedImgs[id] = pre.photo;
-    const prev = document.getElementById('i'+id+'_imgprev');
-    if(prev){ prev.src = pre.photo; prev.style.display = ''; }
-  }
-  recalc();
-}
-
-// Compressed base64 store: keyed by item id
-const _compressedImgs = {};
-
-function previewImg(id){
-  const file = document.getElementById('i'+id+'_imgfile').files[0];
-  const prev = document.getElementById('i'+id+'_imgprev');
-  if(!file){ prev.style.display='none'; delete _compressedImgs[id]; return; }
-  const reader = new FileReader();
-  reader.onload = e => {
-    const original = e.target.result;
-    // Show preview immediately
-    prev.src = original; prev.style.display = '';
-    // Compress in background: max 500px, JPEG quality 0.55
-    const img = new Image();
-    img.onload = () => {
-      const MAX = 500;
-      let w = img.width, h = img.height;
-      if(w > MAX || h > MAX){
-        if(w > h){ h = Math.round(h * MAX / w); w = MAX; }
-        else      { w = Math.round(w * MAX / h); h = MAX; }
-      }
-      const cv = document.createElement('canvas');
-      cv.width = w; cv.height = h;
-      cv.getContext('2d').drawImage(img, 0, 0, w, h);
-      _compressedImgs[id] = cv.toDataURL('image/jpeg', 0.55);
-    };
-    img.src = original;
-  };
-  reader.readAsDataURL(file);
-}
-
-function recalcNetPrice(id, changed){
-  const price = document.getElementById('i'+id+'_price');
-  const disc  = document.getElementById('i'+id+'_disc');
-  const net   = document.getElementById('i'+id+'_net');
-  const p = parseFloat(price.value)||0;
-  const d = parseFloat(disc.value)||0;
-  const n = parseFloat(net.value)||0;
-  if(changed === 'price' || changed === 'disc'){
-    // Recalculate net from price + disc
-    if(p > 0) net.value = (p*(1-d/100)).toFixed(2);
-    else net.value = '';
-  } else if(changed === 'net'){
-    // Recalculate disc from price + net, or price from net if no disc
-    if(p > 0 && n > 0){
-      disc.value = (Math.max(0,(1-n/p)*100)).toFixed(1);
-    } else if(n > 0 && d > 0){
-      price.value = (n/(1-d/100)).toFixed(2);
-    } else if(n > 0){
-      price.value = n.toFixed(2);
-    }
-  }
-  recalc();
-}
-
-function recalcCost(id){
-  // Auto-compute unit cost = raw_cost * (1 - cost_disc/100)
-  const raw  = parseFloat(document.getElementById('i'+id+'_raw_cost')?.value)||0;
-  const disc = parseFloat(document.getElementById('i'+id+'_cost_disc')?.value)||0;
-  const costEl = document.getElementById('i'+id+'_cost');
-  if(raw > 0 && costEl){
-    costEl.value = (raw * (1 - disc/100)).toFixed(2);
-  }
-  recalc();
-}
-
-function fillFromLib(id, idx){
-  if(idx==='') return;
-  const l = library[parseInt(idx)];
-  document.getElementById('i'+id+'_desc').value  = l.desc||'';
-  document.getElementById('i'+id+'_no').value    = l.no||'';
-  const vendorEl = document.getElementById('i'+id+'_vendor');
-  if(vendorEl) vendorEl.value = l.vendor||'';
-  document.getElementById('i'+id+'_vno').value   = l.vno||'';
-  document.getElementById('i'+id+'_price').value = l.price||'';
-  if(document.getElementById('i'+id+'_net')) recalcNetPrice(id,'price');
-  document.getElementById('i'+id+'_cost').value  = l.cost||'';
-  const rawCostEl = document.getElementById('i'+id+'_raw_cost');
-  const costDiscEl= document.getElementById('i'+id+'_cost_disc');
-  if(rawCostEl)  rawCostEl.value  = l.raw_cost||'';
-  if(costDiscEl) costDiscEl.value = l.cost_disc||'';
-  // Set unit dropdown — if value not in list, use 'other' + custom field
-  const unitVal = l.unit||'Piece';
-  const sel = document.getElementById('i'+id+'_unit');
-  const knownUnits = ['Piece','Set of 2','Set of 3','Set of 4','Set of 5'];
-  if(knownUnits.includes(unitVal)){
-    sel.value = unitVal;
-    document.getElementById('i'+id+'_unit_custom').style.display = 'none';
-  } else {
-    sel.value = 'other';
-    const custom = document.getElementById('i'+id+'_unit_custom');
-    custom.value = unitVal;
-    custom.style.display = 'block';
-  }
-  recalc();
-}
-
-function removeItem(id){
-  items=items.filter(i=>i.id!==id);
-  const el=document.getElementById('item-'+id);
-  if(el) el.remove();
-  recalc();
-}
-
-// ── RECALC ─────────────────────────────────────────────────────────────────────
-function toggleDeliveryCustom(){
-  const sel = document.getElementById('delivery_type');
-  const inp = document.getElementById('delivery_type_custom');
-  inp.style.display = sel.value === '__custom__' ? 'inline-block' : 'none';
-}
-function getDeliveryType(){
-  const sel = document.getElementById('delivery_type');
-  if(sel.value === '__custom__') return document.getElementById('delivery_type_custom').value.trim();
-  return sel.value;
-}
-function recalc(){
-  let sub=0, totalCost=0, hasAnyCost=false;
-  items.forEach(({id})=>{
-    const price = parseFloat(document.getElementById('i'+id+'_price')?.value)||0;
-    const qty   = parseFloat(document.getElementById('i'+id+'_qty')?.value)||1;
-    const disc  = parseFloat(document.getElementById('i'+id+'_disc')?.value)||0;
-    const cost  = parseFloat(document.getElementById('i'+id+'_cost')?.value)||0;
-    const lt    = qty * price * (1 - disc/100);
-    sub += lt;
-    if(cost>0){ totalCost += cost*qty; hasAnyCost=true; }
-    const badge = document.getElementById('i'+id+'_badge');
-    if(badge){
-      let gm='';
-      if(cost>0&&lt>0){
-        const g=(lt-cost*qty)/lt*100;
-        const cls=g>=35?'gm-good':g>=20?'gm-warn':'gm-bad';
-        gm=`<span class="gm-pill ${cls}">${g.toFixed(0)}% GM</span>`;
-      }
-      badge.innerHTML='$'+lt.toFixed(2)+gm;
-    }
-  });
-  const del  = parseFloat(document.getElementById('delivery_charge')?.value)||0;
-  const rate = parseFloat(document.getElementById('tax_rate')?.value)||0;
-  const tax  = (sub+del)*rate/100;
-  const tot  = sub+del+tax;
-  document.getElementById('t-sub').textContent   = '$'+sub.toFixed(2);
-  document.getElementById('t-del').textContent   = '$'+del.toFixed(2);
-  document.getElementById('t-tax').textContent   = '$'+tax.toFixed(2);
-  document.getElementById('t-total').textContent = '$'+tot.toFixed(2);
-
-  // Profit panel
-  const pp = document.getElementById('profit-panel');
-  const pr = document.getElementById('profit-rows');
-  if(hasAnyCost){
-    pp.style.display='';
-    const gp = sub - totalCost;
-    const gm = sub>0 ? gp/sub*100 : 0;
-    let html='';
-    items.forEach(({id})=>{
-      const price=parseFloat(document.getElementById('i'+id+'_price')?.value)||0;
-      const qty=parseFloat(document.getElementById('i'+id+'_qty')?.value)||1;
-      const disc=parseFloat(document.getElementById('i'+id+'_disc')?.value)||0;
-      const cost=parseFloat(document.getElementById('i'+id+'_cost')?.value)||0;
-      const lt=qty*price*(1-disc/100);
-      if(cost>0){
-        const prof=lt-cost*qty;
-        const gmi=lt>0?prof/lt*100:0;
-        const desc=(document.getElementById('i'+id+'_desc')?.value||'Item').substring(0,28);
-        html+=`<div class="profit-row"><span>${desc}</span><span>$${lt.toFixed(0)} → profit $${prof.toFixed(0)} (${gmi.toFixed(1)}%)</span></div>`;
-      }
-    });
-    html+=`<div class="profit-row total"><span>Total gross profit</span><span>$${gp.toFixed(2)} &nbsp;|&nbsp; GM ${gm.toFixed(1)}%</span></div>`;
-    pr.innerHTML=html;
-  } else {
-    pp.style.display='none';
-  }
-}
-
-// ── SUMMARY & EXPORT ───────────────────────────────────────────────────────────
-async function buildSummary(){
-  const invNum  = document.getElementById('inv_num').value;
-  const invDate = document.getElementById('inv_date').value;
-  const invRef  = document.getElementById('inv_ref').value;
-  const cName   = document.getElementById('client_name').value;
-  const cNo     = document.getElementById('client_no').value;
-  const cPhone  = document.getElementById('client_phone').value;
-  const cEmail  = document.getElementById('client_email').value;
-  const cAddr   = document.getElementById('client_addr').value;
-  const delType = getDeliveryType();
-  const delChg  = parseFloat(document.getElementById('delivery_charge').value)||0;
-  const taxRate = parseFloat(document.getElementById('tax_rate').value)||0;
-  const payTerms= document.getElementById('payment_terms').value;
-  const notes   = document.getElementById('inv_notes').value;
-
-  let sub=0;
-  const internalLines=[];
-  const itemData=[];
-
-  items.forEach(({id})=>{
-    const desc   = document.getElementById('i'+id+'_desc')?.value||'';
-    const no     = document.getElementById('i'+id+'_no')?.value||'';
-    const vendor = document.getElementById('i'+id+'_vendor')?.value||'';
-    const vno    = document.getElementById('i'+id+'_vno')?.value||'';
-    const qty    = parseFloat(document.getElementById('i'+id+'_qty')?.value)||1;
-    const price  = parseFloat(document.getElementById('i'+id+'_price')?.value)||0;
-    const disc   = parseFloat(document.getElementById('i'+id+'_disc')?.value)||0;
-    const cost   = parseFloat(document.getElementById('i'+id+'_cost')?.value)||0;
-    const raw_cost  = parseFloat(document.getElementById('i'+id+'_raw_cost')?.value)||0;
-    const cost_disc = parseFloat(document.getElementById('i'+id+'_cost_disc')?.value)||0;
-    const unit   = getUnit(id);
-    const del    = document.getElementById('i'+id+'_del')?.value||'';
-    const imgFile= document.getElementById('i'+id+'_imgfile')?.files[0]||null;
-    const lt     = qty*price*(1-disc/100);
-    sub+=lt;
-    itemData.push({id,no,desc,vendor,vno,qty,price,disc,cost,raw_cost,cost_disc,unit,del,imgFile,lt});
-    const ci=[];
-    if(vendor) ci.push(`vendor: "${vendor}"`);
-    if(vno) ci.push(`vendor_no: "${vno}"`);
-    if(raw_cost) ci.push(`raw_cost: ${raw_cost.toFixed(2)}`);
-    if(cost_disc) ci.push(`cost_disc: ${cost_disc.toFixed(1)}%`);
-    if(cost) ci.push(`cost: ${cost.toFixed(2)}`);
-    if(ci.length) internalLines.push(`  • [${no}] ${desc.substring(0,30)} — ${ci.join(', ')}`);
-  });
-
-  // Helper: read file as base64 data URL (fallback only)
-  function toBase64(file){ return new Promise(r=>{ const fr=new FileReader(); fr.onload=e=>r(e.target.result); fr.readAsDataURL(file); }); }
-
-  // Build line text, embedding compressed base64 for any uploaded photo
-  const lineTexts = await Promise.all(itemData.map(async d => {
-    let imgTag = '';
-    if(d.imgFile || _compressedImgs[d.id]){
-      // Prefer pre-compressed version (set when photo was uploaded)
-      let b64 = _compressedImgs[d.id];
-      if(!b64){
-        // Fallback: compress now
-        b64 = await new Promise(resolve => {
-          const fr = new FileReader();
-          fr.onload = e => {
-            const img = new Image();
-            img.onload = () => {
-              const MAX = 500;
-              let w = img.width, h = img.height;
-              if(w > MAX || h > MAX){
-                if(w > h){ h = Math.round(h * MAX / w); w = MAX; }
-                else      { w = Math.round(w * MAX / h); h = MAX; }
-              }
-              const cv = document.createElement('canvas');
-              cv.width = w; cv.height = h;
-              cv.getContext('2d').drawImage(img, 0, 0, w, h);
-              resolve(cv.toDataURL('image/jpeg', 0.55));
-            };
-            img.src = e.target.result;
-          };
-          fr.readAsDataURL(d.imgFile);
-        });
-      }
-      imgTag = `\n    Photo-base64: ${b64}`;
-    }
-    const discPart = d.disc ? `|disc:${d.disc}%` : '';
-    const delPart  = d.del  ? `|del:${d.del}`   : '';
-    const safeDesc = d.desc.replace(/\|/g, '\u2044'); // replace | with fraction slash to avoid breaking parser
-    const safeDel  = d.del.replace(/\|/g, '\u2044');
-    const safeDelPart = safeDel ? `|del:${safeDel}` : '';
-    return `[${d.no}]${safeDesc}|${d.unit}|qty:${d.qty}|$${d.price.toFixed(2)}${discPart}|tot:$${d.lt.toFixed(2)}${safeDelPart}${imgTag}`;
-  }));
-
-  const tax=(sub+delChg)*taxRate/100;
-  const tot=sub+delChg+tax;
-  const payText={advance:'paid in advance',installments:'in installments'}[payTerms]||'paid in advance';
-  // Collect installment data if applicable
-  let installmentData = '';
-  if(payTerms === 'installments'){
-    const rows = document.querySelectorAll('.installment-row');
-    const splitType = document.getElementById('installment_split_type').value;
-    const parts = [];
-    rows.forEach((row, idx) => {
-      const date = row.querySelector('.inst-date').value;
-      const val  = row.querySelector('.inst-val').value;
-      if(date && val) parts.push(`${idx+1}|${date}|${val}|${splitType}`);
-    });
-    if(parts.length) installmentData = '\ninstallments:' + parts.join(';');
-  }
-
-  // (2) Uppercase output filename
-  const clientUpper = cName.toUpperCase().replace(/\s+/g,'_');
-  const invClean    = invNum.replace(/\s+/g,'');
-  const outFilename = `GG__${invClean}_${clientUpper}`;
-
-  let out = `GG-INV|${invNum}|${invDate}|ref:${invRef}
-client:${cName}|no:${cNo}|ph:${cPhone}${cEmail?'|email:'+cEmail:''}
-addr:${cAddr.replace(/\n/g,', ')}
-file:${outFilename}
-ITEMS (fmt: [itemNo]desc|type|qty:N|$unitPrice|disc:N%|tot:$N|del:text|Photo-base64:...)
-${lineTexts.join('\n')}
-${delType?delType+'|':''}sub:$${sub.toFixed(2)}|del:$${delChg.toFixed(2)}|tax(${taxRate}%):$${tax.toFixed(2)}|total:$${tot.toFixed(2)}
-pay:${payText}|ref:${invNum}|client:${cNo}${notes?'\nnotes:'+notes:''}${installmentData}`;
-
-  if(internalLines.length){
-    out+=`\nINTERNAL\n${internalLines.map(l=>l.replace(/^\s+•\s+/,'')).join('\n')}`;
-  }
-
-  document.getElementById('summary-out').textContent=out.trim();
-}
-
-async function generateFiles(){
-  buildSummary();
-
-  const summaryEl = document.getElementById('summary-out');
-  const summary = (summaryEl.textContent || '').trim();
-
-  if (!summary || summary.startsWith('←')) {
-    alert('Please build the summary first.');
-    return;
-  }
-
-  const btn = document.querySelector('button[onclick="generateFiles()"]');
-  const oldText = btn ? btn.textContent : '';
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = 'Generating...';
-  }
-
-  try {
-    const res = await fetch('/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ summary })
-    });
-
-    const data = await res.json();
-
-    if (!res.ok || !data.ok) {
-      throw new Error(data.error || 'Generation failed');
-    }
-
-    const a1 = document.createElement('a');
-    a1.href = data.pdf_url;
-    a1.download = data.pdf_name || '';
-    document.body.appendChild(a1);
-    a1.click();
-    a1.remove();
-
-    setTimeout(() => {
-      const a2 = document.createElement('a');
-      a2.href = data.xlsx_url;
-      a2.download = data.xlsx_name || '';
-      document.body.appendChild(a2);
-      a2.click();
-      a2.remove();
-    }, 300);
-
-  } catch (err) {
-    console.error(err);
-    alert('Generation failed: ' + err.message);
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = oldText || 'Generate PDF + Excel';
-    }
-  }
-}
-
-
-
-function copySummary(){
-  const txt=document.getElementById('summary-out').textContent;
-  navigator.clipboard.writeText(txt).then(()=>alert('Copied to clipboard!')).catch(()=>alert('Select the text and copy manually.'));
-}
-
-// ── CLEAR ──────────────────────────────────────────────────────────────────────
-function clearAll(){
-  if(!confirm('Clear all invoice data?')) return;
-  items=[]; itemCounter=0;
-  document.getElementById('items-container').innerHTML='';
-  ['inv_ref','client_name','client_no','client_phone','client_email','inv_notes'].forEach(id=>{
-    const el=document.getElementById(id); if(el) el.value='';
-  });
-  document.getElementById('client_addr').value='';
-  document.getElementById('delivery_charge').value='0';
-  recalc();
-}
-
-// ── CLIENT BOOK ────────────────────────────────────────────────────────────────
-function renderClientList(){
-  const el=document.getElementById('client-list');
-  const all=allClients();
-  if(!all.length){ el.innerHTML='<div class="empty-msg">No clients saved.</div>'; return; }
-  el.innerHTML=all.map((c,i)=>`
-    <div class="saved-row">
-      <div>
-        <div class="name">${c.name}</div>
-        <div class="meta">#${c.no} &nbsp;|&nbsp; ${c.phone}</div>
-      </div>
-      <div class="row-actions">
-        <button class="btn btn-xs" onclick="useClient(${i})">Use</button>
-        ${i>=PRESET_CLIENTS.length?`<button class="btn btn-xs btn-danger" onclick="delClient(${i})">Delete</button>`:''}
-      </div>
-    </div>`).join('');
-}
-function useClient(i){
-  const c=allClients()[i];
-  document.getElementById('client_name').value=c.name||'';
-  document.getElementById('client_no').value=c.no||'';
-  document.getElementById('client_phone').value=c.phone||'';
-  document.getElementById('client_email').value=c.email||'';
-  document.getElementById('client_addr').value=c.addr||'';
-  showTab('invoice', document.querySelector('.nav-btn'));
-}
-function delClient(i){
-  const realIdx=i-PRESET_CLIENTS.length;
-  if(confirm('Delete '+customClients[realIdx]?.name+'?')){ customClients.splice(realIdx,1); persist(); renderClientList(); refreshClientDropdown(); }
-}
-function saveNewClient(){
-  const c={name:document.getElementById('nc_name').value.trim(),no:document.getElementById('nc_no').value.trim(),phone:document.getElementById('nc_phone').value.trim(),email:document.getElementById('nc_email').value.trim(),addr:document.getElementById('nc_addr').value.trim()};
-  if(!c.name) return;
-  customClients.push(c); persist(); renderClientList(); refreshClientDropdown();
-  ['nc_name','nc_no','nc_phone','nc_email','nc_addr'].forEach(id=>document.getElementById(id).value='');
-  alert('Client saved!');
-}
-
-// ── ITEM LIBRARY ───────────────────────────────────────────────────────────────
-function renderLibraryList(){
-  const el=document.getElementById('item-library-list');
-  if(!library.length){ el.innerHTML='<div class="empty-msg">No items saved yet.</div>'; return; }
-  el.innerHTML=library.map((l,i)=>`
-    <div class="saved-row">
-      <div>
-        <div class="name">${l.desc}</div>
-        <div class="meta">#${l.no}${l.vendor?' | '+l.vendor:''}${l.vno?' | no: '+l.vno:''} &nbsp;|&nbsp; $${l.price}${l.disc?' ('+l.disc+'% off → $'+(l.price*(1-l.disc/100)).toFixed(0)+')':''}${l.cost?' | Cost: $'+l.cost:''}</div>
-      </div>
-      <div class="row-actions">
-        <button class="btn btn-xs" onclick="addItemFromLib(${i})">Add to invoice</button>
-        <button class="btn btn-xs btn-danger" onclick="delLibItem(${i})">Delete</button>
-      </div>
-    </div>`).join('');
-}
-function addItemFromLib(i){
-  const l=library[i];
-  showTab('invoice', document.querySelector('.nav-btn'));
-  addItem({desc:l.desc,no:l.no,vendor:l.vendor||'',vno:l.vno||'',price:l.price,disc:l.disc||'',raw_cost:l.raw_cost||'',cost_disc:l.cost_disc||'',cost:l.cost,unit:l.unit||'Piece',del:l.del||''});
-}
-function delLibItem(i){ if(confirm('Delete?')){ library.splice(i,1); persist(); renderLibraryList(); refreshLibraryDropdowns(); } }
-function recalcLibNet(changed){
-  const price = document.getElementById('ni_price');
-  const disc  = document.getElementById('ni_disc');
-  const net   = document.getElementById('ni_net');
-  const p = parseFloat(price.value)||0;
-  const d = parseFloat(disc.value)||0;
-  const n = parseFloat(net.value)||0;
-  if(changed === 'price' || changed === 'disc'){
-    if(p > 0) net.value = (p*(1-d/100)).toFixed(2);
-    else net.value = '';
-  } else if(changed === 'net'){
-    if(p > 0 && n > 0) disc.value = (Math.max(0,(1-n/p)*100)).toFixed(1);
-    else if(n > 0 && d > 0) price.value = (n/(1-d/100)).toFixed(2);
-    else if(n > 0) price.value = n.toFixed(2);
-  }
-}
-
-function recalcLibCost(){
-  const raw  = parseFloat(document.getElementById('ni_raw_cost')?.value)||0;
-  const disc = parseFloat(document.getElementById('ni_cost_disc')?.value)||0;
-  if(raw > 0) document.getElementById('ni_cost').value = (raw*(1-disc/100)).toFixed(2);
-}
-
-function saveLibItem(){
-  const l={
-    no:document.getElementById('ni_no').value.trim(),
-    vendor:document.getElementById('ni_vendor_name').value.trim(),
-    vno:document.getElementById('ni_vendor_no').value.trim(),
-    desc:document.getElementById('ni_desc').value.trim(),
-    price:document.getElementById('ni_price').value,
-    disc:document.getElementById('ni_disc')?.value||'',
-    raw_cost:document.getElementById('ni_raw_cost').value,
-    cost_disc:document.getElementById('ni_cost_disc').value,
-    cost:document.getElementById('ni_cost').value,
-    del:document.getElementById('ni_del')?.value.trim()||'',
-    unit:getLibUnit()
-  };
-  if(!l.desc) return;
-  library.push(l); persist(); renderLibraryList(); refreshLibraryDropdowns();
-  ['ni_no','ni_vendor_name','ni_vendor_no','ni_desc','ni_del','ni_price','ni_disc','ni_net','ni_raw_cost','ni_cost_disc','ni_cost','ni_unit_custom'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
-  const niUnit = document.getElementById('ni_unit'); if(niUnit) niUnit.value='Piece';
-  toggleLibSetOf();
-  document.getElementById('ni_unit').value='Piece';
-  alert('Item saved!');
-}
-
-
-// ── VENDOR BOOK ────────────────────────────────────────────────────────────────
-function renderVendorList(){
-  const el = document.getElementById('vendor-list');
-  if(!vendors.length){ el.innerHTML='<div class="empty-msg">No vendors saved yet.</div>'; return; }
-  el.innerHTML = vendors.map((v,i)=>`
-    <div class="saved-row">
-      <div>
-        <div class="name">${v.name}</div>
-        ${v.code?'<div class="meta">Code: '+v.code+'</div>':''}
-      </div>
-      <button class="btn btn-xs btn-danger" onclick="delVendor(${i})">Delete</button>
-    </div>`).join('');
-}
-function saveNewVendor(){
-  const name = document.getElementById('nv_name').value.trim();
-  if(!name){ alert('Enter a vendor name'); return; }
-  const code = document.getElementById('nv_code').value.trim();
-  vendors.push({name, code});
-  persist(); renderVendorList(); refreshVendorDropdowns();
-  document.getElementById('nv_name').value='';
-  document.getElementById('nv_code').value='';
-  alert('Vendor saved!');
-}
-function delVendor(i){
-  if(confirm('Delete '+vendors[i].name+'?')){ vendors.splice(i,1); persist(); renderVendorList(); refreshVendorDropdowns(); }
-}
-function refreshLibraryDropdowns(){
-  // Re-populate every quick-add dropdown in the invoice with current library
-  document.querySelectorAll('select[id^="lib_sel_"]').forEach(sel => {
-    const cur = sel.value;
-    sel.innerHTML = '<option value="">— quick-add from library —</option>' +
-      library.map((l,i)=>`<option value="${i}">${l.desc}${l.no?' (#'+l.no+')':''}</option>`).join('');
-    sel.value = cur;
-  });
-}
-function toggleLibSetOf(){
-  const sel = document.getElementById('ni_unit');
-  const custom = document.getElementById('ni_unit_custom');
-  if(sel && custom) custom.style.display = sel.value === 'other' ? 'block' : 'none';
-}
-function getLibUnit(){
-  const sel = document.getElementById('ni_unit');
-  if(!sel) return 'Piece';
-  if(sel.value === 'other'){
-    return document.getElementById('ni_unit_custom')?.value || 'Piece';
-  }
-  return sel.value || 'Piece';
-}
-function refreshVendorDropdowns(){
-  // Refresh line item vendor dropdowns
-  document.querySelectorAll('select[id^="i"][id$="_vendor_sel"]').forEach(sel => {
-    const cur = sel.value;
-    sel.innerHTML = '<option value="">— select vendor —</option>' +
-      vendors.map(v=>`<option value="${v.name}">${v.name}${v.code?' ('+v.code+')':''}</option>`).join('');
-    sel.value = cur;
-  });
-  // Refresh Item Library vendor dropdown
-  const libSel = document.getElementById('ni_vendor_sel');
-  if(libSel){
-    const cur = libSel.value;
-    libSel.innerHTML = '<option value="">— select vendor —</option>' +
-      vendors.map(v=>`<option value="${v.name}">${v.name}${v.code?' ('+v.code+')':''}</option>`).join('');
-    libSel.value = cur;
-  }
-}
-function applyVendorSel(id){
-  const sel = document.getElementById('i'+id+'_vendor_sel');
-  if(sel.value) document.getElementById('i'+id+'_vendor').value = sel.value;
-}
-function applyLibVendorSel(){
-  const sel = document.getElementById('ni_vendor_sel');
-  if(sel.value) document.getElementById('ni_vendor_name').value = sel.value;
-}
-
-
-// ── INVOICE LIBRARY ────────────────────────────────────────────────────────────
-function captureCurrentInvoice(){
-  // Capture all form fields and item data into a serialisable object
-  const inv = {
-    inv_num:        document.getElementById('inv_num').value,
-    inv_date:       document.getElementById('inv_date').value,
-    inv_ref:        document.getElementById('inv_ref').value,
-    client_name:    document.getElementById('client_name').value,
-    client_no:      document.getElementById('client_no').value,
-    client_phone:   document.getElementById('client_phone').value,
-    client_email:   document.getElementById('client_email').value,
-    client_addr:    document.getElementById('client_addr').value,
-    delivery_type:  getDeliveryType(),
-    delivery_charge:document.getElementById('delivery_charge').value,
-    tax_rate:       document.getElementById('tax_rate').value,
-    payment_terms:  document.getElementById('payment_terms').value,
-    inv_notes:      document.getElementById('inv_notes').value,
-    installment_split_type: document.getElementById('installment_split_type')?.value||'amount',
-    installments:   (()=>{
-      const rows = document.querySelectorAll('.installment-row');
-      return Array.from(rows).map(r=>({date:r.querySelector('.inst-date').value,val:r.querySelector('.inst-val').value}));
-    })(),
-    savedAt:        new Date().toISOString(),
-    lineItems: items.map(({id}) => ({
-      no:        document.getElementById('i'+id+'_no')?.value||'',
-      desc:      document.getElementById('i'+id+'_desc')?.value||'',
-      vendor:    document.getElementById('i'+id+'_vendor')?.value||'',
-      vno:       document.getElementById('i'+id+'_vno')?.value||'',
-      qty:       document.getElementById('i'+id+'_qty')?.value||1,
-      price:     document.getElementById('i'+id+'_price')?.value||'',
-      disc:      document.getElementById('i'+id+'_disc')?.value||'',
-      raw_cost:  document.getElementById('i'+id+'_raw_cost')?.value||'',
-      cost_disc: document.getElementById('i'+id+'_cost_disc')?.value||'',
-      cost:      document.getElementById('i'+id+'_cost')?.value||'',
-      del:       document.getElementById('i'+id+'_del')?.value||'',
-      unit:      getUnit(id),
-      photo:     _compressedImgs[id]||'',
-      net:       document.getElementById('i'+id+'_net')?.value||'',
-    }))
-  };
-  return inv;
-}
-
-function saveCurrentInvoice(){
-  const inv = captureCurrentInvoice();
-  const label = inv.inv_num || 'Untitled';
-  if(!inv.inv_num && !inv.client_name){ alert('Please fill in at least an invoice number or client name first.'); return; }
-  // Check if invoice number already exists — offer to overwrite
-  const existingIdx = savedInvoices.findIndex(s => s.inv_num && s.inv_num === inv.inv_num);
-  if(existingIdx >= 0){
-    if(!confirm(`Invoice ${inv.inv_num} is already saved. Overwrite it?`)) return;
-    savedInvoices[existingIdx] = inv;
-  } else {
-    savedInvoices.unshift(inv); // newest first
-  }
-  persist();
-  renderInvoiceLibrary();
-  alert(`Invoice ${label} saved to library!`);
-}
-
-function loadInvoice(idx){
-  if(!confirm('Load this invoice? Any unsaved changes to the current invoice will be lost.')) return;
-  const inv = savedInvoices[idx];
-  // Clear current state
-  items=[]; itemCounter=0;
-  document.getElementById('items-container').innerHTML='';
-  Object.entries({
-    inv_num: inv.inv_num, inv_date: inv.inv_date, inv_ref: inv.inv_ref,
-    client_name: inv.client_name, client_no: inv.client_no,
-    client_phone: inv.client_phone, client_email: inv.client_email,
-    client_addr: inv.client_addr, delivery_charge: inv.delivery_charge,
-    tax_rate: inv.tax_rate, inv_notes: inv.inv_notes,
-  }).forEach(([k,v]) => { const el=document.getElementById(k); if(el) el.value=v||''; });
-  // Delivery type
-  const dtSel = document.getElementById('delivery_type');
-  const knownTypes = ['White Glove Delivery','Standard Delivery','','__custom__'];
-  if(knownTypes.includes(inv.delivery_type)){
-    dtSel.value = inv.delivery_type;
-  } else {
-    dtSel.value = '__custom__';
-    document.getElementById('delivery_type_custom').value = inv.delivery_type||'';
-    document.getElementById('delivery_type_custom').style.display = 'inline-block';
-  }
-  toggleDeliveryCustom();
-  // Payment terms
-  document.getElementById('payment_terms').value = inv.payment_terms||'advance';
-  // Line items
-  (inv.lineItems||[]).forEach(li => {
-    addItem({
-      no: li.no, desc: li.desc, vendor: li.vendor, vno: li.vno,
-      qty: li.qty, price: li.price, disc: li.disc, net: li.net||'',
-      raw_cost: li.raw_cost, cost_disc: li.cost_disc, cost: li.cost,
-      del: li.del, unit: li.unit, photo: li.photo||'',
-    });
-  });
-  refreshClientDropdown();
-  recalc();
-  // Restore installments
-  document.getElementById('payment_terms').value = inv.payment_terms||'advance';
-  toggleInstallments();
-  if(inv.payment_terms === 'installments' && inv.installments && inv.installments.length){
-    const n = inv.installments.length;
-    document.getElementById('installment_count_sel').value = n;
-    if(inv.installment_split_type)
-      document.getElementById('installment_split_type').value = inv.installment_split_type;
-    document.getElementById('installment-rows').innerHTML='';
-    installmentCount=0;
-    inv.installments.forEach(inst => _addInstallmentRow(inst.date||'', inst.val||''));
-    validateInstallments();
-  }
-  // Navigate to invoice tab
-  showTab('invoice', document.querySelector('.nav-btn'));
-}
-
-function deleteInvoice(idx){
-  const inv = savedInvoices[idx];
-  if(!confirm(`Delete saved invoice ${inv.inv_num||'(untitled)'} — ${inv.client_name||''}?`)) return;
-  savedInvoices.splice(idx,1);
-  persist();
-  renderInvoiceLibrary();
-}
-
-function renderInvoiceLibrary(){
-  const el = document.getElementById('invoice-library-list');
-  if(!el) return;
-  if(!savedInvoices.length){
-    el.innerHTML='<div class="empty-msg">No saved invoices yet. Fill in a New Invoice then click "Save current invoice".</div>';
-    return;
-  }
-  el.innerHTML = savedInvoices.map((inv, i) => {
-    const date = inv.savedAt ? new Date(inv.savedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
-    const items_count = (inv.lineItems||[]).length;
-    return `
-    <div class="saved-row">
-      <div style="flex:1;min-width:0">
-        <div class="name">${inv.inv_num||'Untitled'} &nbsp;|&nbsp; ${inv.client_name||'—'}</div>
-        <div class="meta">${inv.inv_date||''} &nbsp;·&nbsp; ${items_count} item${items_count!==1?'s':''} &nbsp;·&nbsp; saved ${date}</div>
-        ${inv.inv_ref?'<div class="meta">Ref: '+inv.inv_ref+'</div>':''}
-      </div>
-      <div class="row-actions">
-        <button class="btn btn-xs btn-primary" onclick="loadInvoice(${i})">Load</button>
-        <button class="btn btn-xs btn-danger" onclick="deleteInvoice(${i})">Delete</button>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-
-// ── INSTALLMENT PAYMENT PLAN ───────────────────────────────────────────────────
-let installmentCount = 0;
-
-function toggleInstallments(){
-  const val = document.getElementById('payment_terms').value;
-  const card = document.getElementById('installment-card');
-  card.style.display = val === 'installments' ? '' : 'none';
-}
-
-function setupInstallmentRows(){
-  const n = parseInt(document.getElementById('installment_count_sel').value)||0;
-  if(!n) return;
-  const container = document.getElementById('installment-rows');
-  container.innerHTML = '';
-  installmentCount = 0;
-  for(let i=0; i<n; i++) _addInstallmentRow();
-  validateInstallments();
-}
-
-function _addInstallmentRow(date='', val=''){
-  installmentCount++;
-  const idx = installmentCount;
-  const isLast = idx === parseInt(document.getElementById('installment_count_sel').value||'0');
-  const splitType = document.getElementById('installment_split_type').value;
-  const container = document.getElementById('installment-rows');
-  const div = document.createElement('div');
-  div.className = 'installment-row';
-  div.style.cssText = 'display:grid;grid-template-columns:1.5rem 1fr 1fr;gap:8px;align-items:start;margin-bottom:10px';
-  div.innerHTML = `
-    <span style="font-size:11px;font-weight:700;color:var(--mid);padding-top:8px">${idx}</span>
-    <div class="field" style="margin:0">
-      <label style="font-size:10px">Date</label>
-      <input type="date" class="inst-date" value="${date}" oninput="validateInstallments()">
-    </div>
-    <div class="field" style="margin:0">
-      <label style="font-size:10px">${isLast ? 'Amount — <em style="color:var(--mid)">auto-adjusted</em>' : (splitType==='pct'?'Percentage (%)':'Amount ($)')}</label>
-      <input type="number" class="inst-val" value="${val}" placeholder="${splitType==='pct'?'e.g. 50':'e.g. 1500'}"
-             step="0.01" min="0" ${isLast?'style="background:#f5f2ef;font-weight:600" readonly':''}
-             oninput="validateInstallments()">
-      <div class="inst-remaining" style="font-size:11px;margin-top:3px;font-style:italic"></div>
-    </div>`;
-  container.appendChild(div);
-}
-
-function recalcInstallments(){
-  const n = parseInt(document.getElementById('installment_count_sel').value)||0;
-  if(!n) return;
-  // Preserve existing dates/values, rebuild with new split type
-  const existing = Array.from(document.querySelectorAll('.installment-row')).map(r=>({
-    date: r.querySelector('.inst-date').value,
-    val: r.querySelector('.inst-val').value
-  }));
-  document.getElementById('installment-rows').innerHTML='';
-  installmentCount=0;
-  for(let i=0; i<n; i++) _addInstallmentRow(existing[i]?.date||'', existing[i]?.val||'');
-  validateInstallments();
-}
-
-function validateInstallments(){
-  const splitType = document.getElementById('installment_split_type').value;
-  const rows = Array.from(document.querySelectorAll('.installment-row'));
-  if(!rows.length) return;
-  const validEl = document.getElementById('installment-validation');
-  const invoiceTotalStr = document.getElementById('t-total')?.textContent||'$0';
-  const invoiceTotal = parseFloat(invoiceTotalStr.replace(/[$,]/g,''))||0;
-
-  // ── Auto-correct last row ───────────────────────────────────────────────────
-  const lastRow = rows[rows.length-1];
-  const lastVal = lastRow.querySelector('.inst-val');
-  if(invoiceTotal > 0 && rows.length > 1){
-    const sumOthers = rows.slice(0,-1).map(r=>parseFloat(r.querySelector('.inst-val').value)||0).reduce((a,b)=>a+b,0);
-    if(splitType === 'amount'){
-      const autoVal = Math.max(0, invoiceTotal - sumOthers);
-      lastVal.value = autoVal.toFixed(2);
-    } else {
-      const autoVal = Math.max(0, 100 - sumOthers);
-      lastVal.value = autoVal.toFixed(2);
-    }
-  }
-
-  const vals = rows.map(r => parseFloat(r.querySelector('.inst-val').value)||0);
-  const instTotal = vals.reduce((a,b)=>a+b, 0);
-
-  // ── Per-row remaining hint ─────────────────────────────────────────────────
-  rows.forEach((row, idx) => {
-    let hint = row.querySelector('.inst-remaining');
-    if(!hint){
-      hint = document.createElement('div');
-      hint.className = 'inst-remaining';
-      hint.style.cssText = 'font-size:11px;margin-top:3px;font-style:italic';
-      row.querySelector('.inst-val').closest('.field').appendChild(hint);
-    }
-    const isLast = idx === rows.length - 1;
-    if(splitType === 'amount' && invoiceTotal > 0){
-      const sumSoFar = vals.slice(0, idx+1).reduce((a,b)=>a+b, 0);
-      const remaining = invoiceTotal - sumSoFar;
-      if(isLast){
-        hint.textContent = '↑ Last installment is auto-adjusted to match the total';
-        hint.style.color = 'var(--mid)';
-      } else {
-        const remaining = invoiceTotal - vals.slice(0, idx+1).reduce((a,b)=>a+b, 0);
-        if(remaining < 0){
-          hint.textContent = `⚠ Exceeds total by $${Math.abs(remaining).toFixed(2)}`;
-          hint.style.color = 'var(--danger)';
-        } else {
-          hint.textContent = `Remaining: $${remaining.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
-          hint.style.color = remaining < 0.01 ? 'var(--mid)' : '#555';
-        }
-      }
-    } else if(splitType === 'pct'){
-      const pctSoFar = vals.slice(0, idx+1).reduce((a,b)=>a+b, 0);
-      const remaining = 100 - pctSoFar;
-      if(isLast){
-        hint.textContent = Math.abs(vals.reduce((a,b)=>a+b,0) - 100) < 0.01 ? '✓ Adds up to 100%' : `⚠ Totals ${vals.reduce((a,b)=>a+b,0).toFixed(1)}% — must be 100%`;
-        hint.style.color = Math.abs(vals.reduce((a,b)=>a+b,0) - 100) < 0.01 ? 'green' : 'var(--danger)';
-      } else {
-        hint.textContent = remaining < 0 ? `⚠ Over by ${Math.abs(remaining).toFixed(1)}%` : `Remaining: ${remaining.toFixed(1)}%`;
-        hint.style.color = remaining < 0 ? 'var(--danger)' : '#555';
-      }
-    } else {
-      hint.textContent = '';
-    }
-  });
-
-  // ── Overall validation message ─────────────────────────────────────────────
-  if(splitType === 'pct'){
-    if(Math.abs(instTotal - 100) > 0.01 && vals.some(v=>v>0)){
-      validEl.textContent = `⚠ Percentages total ${instTotal.toFixed(1)}% — must equal exactly 100%`;
-      validEl.style.color = 'var(--danger)'; validEl.style.display = '';
-    } else { validEl.style.display = 'none'; }
-  } else {
-    const sumExcludingLast = vals.slice(0,-1).reduce((a,b)=>a+b, 0);
-    if(invoiceTotal > 0 && sumExcludingLast > invoiceTotal + 0.01){
-      validEl.textContent = `⚠ Earlier installments already total $${sumExcludingLast.toFixed(2)} which exceeds the invoice total of $${invoiceTotal.toFixed(2)}. Please reduce them.`;
-      validEl.style.color = 'var(--danger)'; validEl.style.display = '';
-    } else if(invoiceTotal > 0 && Math.abs(instTotal - invoiceTotal) > 0.01 && vals.some(v=>v>0) && rows.length > 0){
-      validEl.textContent = `ℹ The last installment will be auto-adjusted from $${vals[vals.length-1]?.toFixed(2)||'0.00'} → $${(invoiceTotal - sumExcludingLast).toFixed(2)} to match the invoice total of $${invoiceTotal.toFixed(2)}.`;
-      validEl.style.color = 'var(--mid)'; validEl.style.display = '';
-    } else {
-      validEl.style.display = 'none';
-    }
-  }
-}
-
-// ── INIT ───────────────────────────────────────────────────────────────────────
-document.getElementById('inv_date').value = new Date().toISOString().slice(0,10);
-refreshClientDropdown();
-addItem();
-</script>
-</body>
-</html>
+import os
+import base64
+import tempfile
+from pathlib import Path
+from datetime import datetime
+from collections import deque
+
+from PIL import Image as PILImage
+
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import inch
+from reportlab.pdfgen import canvas
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Table,
+    TableStyle,
+    Paragraph,
+    Spacer,
+    Image,
+)
+
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
+from openpyxl.utils import get_column_letter
+
+BASE_DIR = Path(__file__).resolve().parent
+LOGO_PATH = BASE_DIR / "golden_glam_logo_final.png"
+
+styles = getSampleStyleSheet()
+
+BLACK = colors.HexColor("#231f1e")
+DARK = colors.HexColor("#4a4745")
+MID = colors.HexColor("#8c8a87")
+BORDER = colors.HexColor("#d8d5d2")
+
+CONTENT_WIDTH = 7.30 * inch
+ITEM_COL_WIDTHS = [
+    0.66 * inch,  # item no
+    2.10 * inch,  # description
+    0.92 * inch,  # est del
+    0.52 * inch,  # type
+    0.34 * inch,  # qty
+    0.72 * inch,  # unit price
+    0.42 * inch,  # disc
+    0.58 * inch,  # total
+    1.04 * inch,  # photo
+]
+assert round(sum(ITEM_COL_WIDTHS), 4) == round(CONTENT_WIDTH, 4)
+
+
+def usd(v: float) -> str:
+    return f"${v:,.0f}"
+
+
+def fmt_date_for_footer(date_str: str) -> str:
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        return dt.strftime("%Y-%m-%d")
+    except Exception:
+        return date_str or ""
+
+
+def _is_dark_pixel(px, threshold=60):
+    r, g, b, a = px
+    return a > 0 and r <= threshold and g <= threshold and b <= threshold
+
+
+def _whiten_edge_connected_dark(img_rgba: PILImage.Image, threshold=60) -> PILImage.Image:
+    """
+    Flood-fill from the image edges and turn dark edge-connected pixels white.
+    This fixes common product cutouts that arrive with black canvas background.
+    """
+    img = img_rgba.copy()
+    w, h = img.size
+    px = img.load()
+
+    visited = set()
+    q = deque()
+
+    for x in range(w):
+        q.append((x, 0))
+        q.append((x, h - 1))
+    for y in range(h):
+        q.append((0, y))
+        q.append((w - 1, y))
+
+    while q:
+        x, y = q.popleft()
+        if (x, y) in visited:
+            continue
+        visited.add((x, y))
+
+        if x < 0 or y < 0 or x >= w or y >= h:
+            continue
+
+        if _is_dark_pixel(px[x, y], threshold):
+            px[x, y] = (255, 255, 255, 255)
+            for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+                if 0 <= nx < w and 0 <= ny < h and (nx, ny) not in visited:
+                    q.append((nx, ny))
+
+    return img
+
+
+def _decode_image(image_value: str) -> str | None:
+    """
+    Decode image and force a white background robustly:
+    - preserve transparency if present
+    - whiten dark edge-connected backgrounds
+    - flatten onto white
+    """
+    if not image_value:
+        return None
+
+    try:
+        if image_value.startswith("data:image"):
+            _, b64 = image_value.split(",", 1)
+            raw = base64.b64decode(b64)
+            tmp_in = tempfile.NamedTemporaryFile(delete=False, suffix=".img")
+            tmp_in.write(raw)
+            tmp_in.close()
+            src_path = tmp_in.name
+        else:
+            if not os.path.exists(image_value):
+                return None
+            src_path = image_value
+
+        img = PILImage.open(src_path).convert("RGBA")
+        img = _whiten_edge_connected_dark(img, threshold=60)
+
+        white_bg = PILImage.new("RGBA", img.size, (255, 255, 255, 255))
+        white_bg.paste(img, (0, 0), img)
+
+        out = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        white_bg.save(out.name, format="PNG")
+        out.close()
+
+        if image_value.startswith("data:image"):
+            try:
+                os.remove(src_path)
+            except Exception:
+                pass
+
+        return out.name
+
+    except Exception:
+        return None
+
+
+class _NumberedCanvas(canvas.Canvas):
+    """Two-pass canvas that knows the total page count."""
+    _gg_inv = {}  # set by draw_invoice before doc.build()
+
+    def __init__(self, *args, **kwargs):
+        canvas.Canvas.__init__(self, *args, **kwargs)
+        self._saved_page_states = []
+
+    def showPage(self):
+        self._saved_page_states.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self):
+        total = len(self._saved_page_states)
+        for state in self._saved_page_states:
+            self.__dict__.update(state)
+            self._draw_footer_and_header(total)
+            canvas.Canvas.showPage(self)
+        canvas.Canvas.save(self)
+
+    def _draw_footer_and_header(self, total_pages):
+        inv = _NumberedCanvas._gg_inv
+        print_date = fmt_date_for_footer(inv.get("date", ""))
+        page_num = self.getPageNumber()
+
+        self.saveState()
+
+        # ── Header: logo on every page, same size and position ──────────────
+        if os.path.exists(str(LOGO_PATH)):
+            logo_w, logo_h = 2.85 * inch, 1.08 * inch
+            self.drawImage(
+                str(LOGO_PATH),
+                (letter[0] - logo_w) / 2,
+                letter[1] - 0.3 * inch - logo_h,
+                width=logo_w, height=logo_h,
+                mask="auto", preserveAspectRatio=True,
+            )
+
+        # ── Footer ─────────────────────────────────────────────────────────────
+        y_line = 0.70 * inch
+        self.setStrokeColor(BORDER)
+        self.setLineWidth(0.6)
+        self.line(0.28 * inch, y_line, letter[0] - 0.28 * inch, y_line)
+
+        self.setFont("Helvetica", 7)
+        self.setFillColor(MID)
+        self.drawString(0.28 * inch, y_line - 0.16 * inch, f"Print date: {print_date}")
+        self.drawRightString(
+            letter[0] - 0.28 * inch,
+            y_line - 0.16 * inch,
+            f"Page {page_num} of {total_pages}",
+        )
+
+        self.setFont("Helvetica-Bold", 7)
+        self.setFillColor(BLACK)
+        self.drawCentredString(letter[0] / 2, 0.46 * inch, "GOLDEN GLAM INTERIORS LLC")
+
+        self.setFont("Helvetica", 6)
+        self.setFillColor(DARK)
+        self.drawCentredString(
+            letter[0] / 2,
+            0.32 * inch,
+            "Address: 828 Highland Ln Ne, Apt. 2204, Atlanta, GA 30306  |  Phone: 770-375-7343",
+        )
+        self.drawCentredString(
+            letter[0] / 2,
+            0.20 * inch,
+            "Bank #: 930283558  |  Routing: 061092387  |  Zelle: rana_salah@goldenglam.nl  |  E-mail: sales@goldenglam.nl",
+        )
+        self.restoreState()
+
+
+def _footer(canvas, doc):
+    """No-op: footer/header is handled by _NumberedCanvas."""
+    pass
+
+
+def _autosize(ws, widths=None):
+    if widths:
+        for col_idx, width in widths.items():
+            ws.column_dimensions[get_column_letter(col_idx)].width = width
+        return
+
+    for col_cells in ws.columns:
+        max_len = 0
+        for cell in col_cells:
+            val = "" if cell.value is None else str(cell.value)
+            max_len = max(max_len, len(val))
+        ws.column_dimensions[get_column_letter(col_cells[0].column)].width = min(max_len + 2, 40)
+
+
+def _write_internal_excel(inv: dict, output_path: str):
+    wb = Workbook()
+
+    # ── Shared styles ──────────────────────────────────────────────────────────
+    thin       = Side(style="thin", color="D9D9D9")
+    thick_side = Side(style="medium", color="231F1E")
+    bdr        = Border(left=thin, right=thin, top=thin, bottom=thin)
+    hdr_fill   = PatternFill("solid", fgColor="231F1E")   # dark header
+    gold_fill  = PatternFill("solid", fgColor="B8963E")   # gold accent
+    green_fill = PatternFill("solid", fgColor="D4EDDA")
+    amber_fill = PatternFill("solid", fgColor="FFF3CD")
+    red_fill   = PatternFill("solid", fgColor="F8D7DA")
+    grey_fill  = PatternFill("solid", fgColor="F5F2EF")
+    white_fill = PatternFill("solid", fgColor="FFFFFF")
+    hdr_font   = Font(color="FFFFFF", bold=True, size=9)
+    bold_font  = Font(bold=True, size=9)
+    norm_font  = Font(size=9)
+    title_font = Font(bold=True, size=12, color="231F1E")
+    gold_font  = Font(bold=True, size=10, color="FFFFFF")
+    center     = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left       = Alignment(horizontal="left",   vertical="center", wrap_text=True)
+    right      = Alignment(horizontal="right",  vertical="center")
+
+    def hdr_cell(ws, row, col, val):
+        c = ws.cell(row, col, val)
+        c.fill = hdr_fill; c.font = hdr_font; c.alignment = center; c.border = bdr
+        return c
+
+    def data_cell(ws, row, col, val, fmt=None, bold=False, fill=None, align=None):
+        c = ws.cell(row, col, val)
+        c.font = Font(bold=bold, size=9)
+        c.alignment = align or left
+        c.border = bdr
+        if fmt: c.number_format = fmt
+        if fill: c.fill = fill
+        return c
+
+    # ── Pre-compute financials ─────────────────────────────────────────────────
+    items = inv.get("items", [])
+    delivery_charge = inv.get("delivery_charge", 0) or 0
+    tax_rate        = inv.get("tax_rate", 0) or 0
+
+    item_data = []
+    subtotal = 0
+    total_cost = 0
+    for item in items:
+        qty        = item.get("qty", 0)
+        unit_price = item.get("unit_price", 0)
+        disc       = item.get("discount", 0)
+        lt         = qty * unit_price * (1 - disc)
+        unit_cost  = item.get("cost", 0) or 0
+        ext_cost   = unit_cost * qty
+        profit     = lt - ext_cost if unit_cost else None
+        gm         = (profit / lt) if (profit is not None and lt) else None
+        subtotal  += lt
+        if unit_cost: total_cost += ext_cost
+        item_data.append(dict(
+            no=item.get("no",""), vendor_name=item.get("vendor_name",""),
+            vendor_no=item.get("vendor_no",""), desc=item.get("description",""),
+            qty=qty, unit=item.get("unit",""), unit_price=unit_price,
+            disc=disc, lt=lt, raw_cost=item.get("raw_cost",0) or 0,
+            cost_disc=item.get("cost_disc",0) or 0, unit_cost=unit_cost,
+            ext_cost=ext_cost, profit=profit, gm=gm,
+            delivery=item.get("delivery",""),
+            has_img=bool(item.get("image")),
+        ))
+
+    tax_amt     = (subtotal + delivery_charge) * tax_rate
+    grand_total = subtotal + delivery_charge + tax_amt
+    total_profit = subtotal - total_cost if total_cost else None
+    overall_gm   = (total_profit / subtotal) if (total_profit is not None and subtotal) else None
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # TAB 1 — P&L Summary  (at-a-glance)
+    # ══════════════════════════════════════════════════════════════════════════
+    ws1 = wb.active
+    ws1.title = "P&L Summary"
+    ws1.column_dimensions["A"].width = 28
+    ws1.column_dimensions["B"].width = 18
+    ws1.column_dimensions["C"].width = 18
+    ws1.column_dimensions["D"].width = 16
+    ws1.column_dimensions["E"].width = 16
+    ws1.row_dimensions[1].height = 28
+
+    # Title banner
+    ws1.merge_cells("A1:E1")
+    tc = ws1.cell(1, 1, f"GOLDEN GLAM — P&L SUMMARY  |  Invoice {inv.get('number','')}  |  {inv.get('client_name','')}  |  {inv.get('date','')}")
+    tc.font = Font(bold=True, size=11, color="FFFFFF")
+    tc.fill = hdr_fill; tc.alignment = center
+
+    # ── Section A: Overall P&L ────────────────────────────────────────────────
+    r = 3
+    ws1.merge_cells(f"A{r}:E{r}")
+    sc = ws1.cell(r, 1, "OVERALL INVOICE P&L")
+    sc.font = gold_font; sc.fill = gold_fill; sc.alignment = center
+    ws1.row_dimensions[r].height = 20
+
+    r += 1
+    for col, h in enumerate(["", "Amount ($)", "% of Revenue", "", ""], 1):
+        hdr_cell(ws1, r, col, h)
+    ws1.row_dimensions[r].height = 18
+
+    def pl_row(ws, r, label, value, pct=None, highlight=None):
+        ws.row_dimensions[r].height = 18
+        c1 = ws.cell(r, 1, label); c1.font = bold_font; c1.border = bdr; c1.fill = grey_fill; c1.alignment = left
+        c2 = ws.cell(r, 2, value); c2.font = bold_font; c2.border = bdr; c2.alignment = right
+        c2.number_format = "$#,##0.00"
+        c3 = ws.cell(r, 3, pct);   c3.font = norm_font; c3.border = bdr; c3.alignment = right
+        c3.number_format = "0.00%"   # always set — blank cells show nothing, decimal cells show %
+        ws.cell(r, 4).border = bdr; ws.cell(r, 5).border = bdr
+        if highlight: c2.fill = highlight; c3.fill = highlight
+
+    r += 1; pl_row(ws1, r, "Invoice Subtotal (Revenue)", subtotal)
+    r += 1; pl_row(ws1, r, "Total Cost of Goods", total_cost if total_cost else "N/A",
+                   (total_cost/subtotal) if (total_cost and subtotal) else None)
+    r += 1
+    if total_profit is not None:
+        fill = green_fill if total_profit >= 0 else red_fill
+        pl_row(ws1, r, "Gross Profit (items)", total_profit,
+               overall_gm, highlight=fill)
+    else:
+        pl_row(ws1, r, "Gross Profit (items)", "N/A — costs not entered")
+    r += 1; pl_row(ws1, r, "Delivery Charged to Client", delivery_charge)
+    r += 1; pl_row(ws1, r, "Sales Tax", tax_amt, tax_rate)
+    r += 1
+    ws1.merge_cells(f"A{r}:E{r}")
+    note = ws1.cell(r, 1, "ℹ  Delivery P&L (net profit on delivery) → see 'Delivery P&L' tab")
+    note.font = Font(italic=True, size=8, color="888888"); note.alignment = left
+
+    # ── Section B: Line-item P&L ──────────────────────────────────────────────
+    r += 2
+    ws1.merge_cells(f"A{r}:E{r}")
+    sc2 = ws1.cell(r, 1, "LINE ITEM BREAKDOWN")
+    sc2.font = gold_font; sc2.fill = gold_fill; sc2.alignment = center
+    ws1.row_dimensions[r].height = 20
+
+    r += 1
+    for col, h in enumerate(["Item / Description", "Line Total ($)", "Unit Cost after disc. ($)", "Profit ($)", "GM %"], 1):
+        hdr_cell(ws1, r, col, h)
+    ws1.row_dimensions[r].height = 18
+
+    for d in item_data:
+        r += 1
+        ws1.row_dimensions[r].height = 16
+        label = f"[{d['no']}] {d['desc'][:40]}" if d['no'] else d['desc'][:45]
+        data_cell(ws1, r, 1, label, bold=False)
+        data_cell(ws1, r, 2, d['lt'],       fmt="$#,##0.00", align=right)
+        data_cell(ws1, r, 3, d['ext_cost'] if d['unit_cost'] else "—", fmt="$#,##0.00" if d['unit_cost'] else None, align=right)
+        if d['profit'] is not None:
+            pf = d['profit']
+            fill = green_fill if pf >= 0 else red_fill
+            data_cell(ws1, r, 4, pf,     fmt="$#,##0.00", align=right, fill=fill, bold=True)
+            data_cell(ws1, r, 5, d['gm'] if d['gm'] is not None else "—",
+                      fmt="0.00%", align=right,
+                      fill=green_fill if d['gm'] and d['gm']>=0.30 else (amber_fill if d['gm'] and d['gm']>=0.15 else red_fill))
+        else:
+            data_cell(ws1, r, 4, "—", align=right)
+            data_cell(ws1, r, 5, "—", align=right)
+
+    # Totals row
+    r += 1
+    ws1.row_dimensions[r].height = 18
+    for col in range(1, 6):
+        ws1.cell(r, col).border = Border(top=thick_side, bottom=thick_side, left=thin, right=thin)
+    data_cell(ws1, r, 1, "TOTAL", bold=True, fill=grey_fill)
+    data_cell(ws1, r, 2, subtotal,      fmt="$#,##0.00", bold=True, align=right)
+    data_cell(ws1, r, 3, total_cost if total_cost else "—", fmt="$#,##0.00" if total_cost else None, bold=True, align=right)
+    if total_profit is not None:
+        fill = green_fill if total_profit >= 0 else red_fill
+        data_cell(ws1, r, 4, total_profit, fmt="$#,##0.00", bold=True, align=right, fill=fill)
+        data_cell(ws1, r, 5, overall_gm,   fmt="0.00%",     bold=True, align=right,
+                  fill=green_fill if overall_gm and overall_gm>=0.30 else (amber_fill if overall_gm and overall_gm>=0.15 else red_fill))
+    else:
+        data_cell(ws1, r, 4, "—", bold=True, align=right)
+        data_cell(ws1, r, 5, "—", bold=True, align=right)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # TAB 2 — Invoice Detail  (full line item breakdown)
+    # ══════════════════════════════════════════════════════════════════════════
+    ws2 = wb.create_sheet("Invoice Detail")
+    det_headers = [
+        "Item No", "Vendor Name", "Vendor No", "Description",
+        "Qty", "Unit", "Unit Price", "Disc %",
+        "Line Total", "List Cost (before disc.)", "Cost Disc %", "Unit Cost (after disc.)",
+        "Total Cost", "Profit", "GM %", "Est. Delivery", "Photo",
+    ]
+    for col, h in enumerate(det_headers, 1):
+        hdr_cell(ws2, 1, col, h)
+    ws2.row_dimensions[1].height = 32
+
+    for i, d in enumerate(item_data):
+        row_idx = i + 2
+        ws2.row_dimensions[row_idx].height = 16
+        vals = [
+            d["no"], d["vendor_name"], d["vendor_no"], d["desc"],
+            d["qty"], d["unit"], d["unit_price"], d["disc"],
+            d["lt"], d["raw_cost"], d["cost_disc"]/100 if d["cost_disc"] else 0,
+            d["unit_cost"], d["ext_cost"],
+            d["profit"] if d["profit"] is not None else "N/A",
+            d["gm"] if d["gm"] is not None else "N/A",
+            d["delivery"], "Yes" if d["has_img"] else "",
+        ]
+        for col, v in enumerate(vals, 1):
+            c = ws2.cell(row_idx, col, v)
+            c.font = norm_font; c.border = bdr; c.alignment = left
+        # Formats — col map: 5=Qty(plain), 7=UnitPrice($), 8=Disc%(%), 
+        #   9=LineTotal($), 10=RawCost($), 11=CostDisc%(%), 12=UnitCost($),
+        #   13=ExtCost($), 14=Profit($), 15=GM%(%)
+        # Qty col: store as int, format as plain number
+        qty_cell = ws2.cell(row_idx, 5)
+        qty_cell.value = int(d["qty"])
+        qty_cell.number_format = "0"
+        for col, fmt in [(7,"$#,##0.00"),(9,"$#,##0.00"),(10,"$#,##0.00"),
+                         (12,"$#,##0.00"),(13,"$#,##0.00"),(14,"$#,##0.00")]:
+            ws2.cell(row_idx, col).number_format = fmt
+        for col in [8, 11, 15]:   # all % columns
+            c = ws2.cell(row_idx, col)
+            c.number_format = "0.00%"
+            # ensure value is stored as decimal for percentage display
+            if isinstance(c.value, (int, float)):
+                c.value = float(c.value)  # force float so Excel treats as number
+        # GM colour
+        gm_val = d["gm"]
+        if gm_val is not None:
+            ws2.cell(row_idx, 15).fill = (green_fill if gm_val>=0.30 else amber_fill if gm_val>=0.15 else red_fill)
+
+    _autosize(ws2, {1:12, 2:18, 3:14, 4:36, 5:6, 6:8, 7:12, 8:9,
+                    9:12, 10:12, 11:11, 12:12, 13:12, 14:12, 15:9, 16:20, 17:8})
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # TAB 3 — Delivery P&L
+    # ══════════════════════════════════════════════════════════════════════════
+    ws3 = wb.create_sheet("Delivery P&L")
+    ws3.column_dimensions["A"].width = 22
+    ws3.column_dimensions["B"].width = 22
+    ws3.column_dimensions["C"].width = 16
+    ws3.row_dimensions[1].height = 28
+
+    # Title
+    ws3.merge_cells("A1:C1")
+    t3 = ws3.cell(1, 1, f"DELIVERY P&L  |  Invoice {inv.get('number','')}  |  {inv.get('client_name','')}")
+    t3.font = Font(bold=True, size=10, color="FFFFFF")
+    t3.fill = hdr_fill; t3.alignment = center
+
+    # Charged to client
+    r = 3
+    ws3.merge_cells(f"A{r}:C{r}")
+    ws3.cell(r, 1, "DELIVERY CHARGED TO CLIENT").font = Font(bold=True, size=9)
+    ws3.cell(r, 1).fill = grey_fill; ws3.cell(r, 1).border = bdr; ws3.cell(r, 1).alignment = left
+    r += 1
+    ws3.cell(r, 1, inv.get("delivery_type","Delivery") or "Delivery").border = bdr
+    ws3.cell(r, 1).font = norm_font; ws3.cell(r, 1).alignment = left
+    ws3.cell(r, 2, "").border = bdr
+    c_charged = ws3.cell(r, 3, delivery_charge)
+    c_charged.number_format = "$#,##0.00"; c_charged.border = bdr
+    c_charged.font = Font(bold=True, size=9); c_charged.alignment = right
+
+    # Delivery costs (manual entry)
+    r += 2
+    ws3.merge_cells(f"A{r}:C{r}")
+    ws3.cell(r, 1, "YOUR DELIVERY COSTS  (fill in manually)").font = Font(bold=True, size=9)
+    ws3.cell(r, 1).fill = grey_fill; ws3.cell(r, 1).border = bdr; ws3.cell(r, 1).alignment = left
+    r += 1
+    for col, h in enumerate(["From", "To", "Cost ($)"], 1):
+        hdr_cell(ws3, r, col, h)
+    ws3.row_dimensions[r].height = 18
+    cost_start_row = r + 1
+    for i in range(10):
+        rr = r + 1 + i
+        for col in range(1, 4):
+            c = ws3.cell(rr, col, "")
+            c.border = bdr; c.font = norm_font; c.alignment = left
+            if col == 3:
+                c.number_format = "$#,##0.00"; c.alignment = right
+        ws3.row_dimensions[rr].height = 16
+    cost_end_row = r + 10
+
+    # Total delivery costs formula
+    r = cost_end_row + 1
+    ws3.row_dimensions[r].height = 18
+    ws3.cell(r, 1, "Total Delivery Costs").font = bold_font; ws3.cell(r, 1).border = bdr; ws3.cell(r, 1).fill = grey_fill; ws3.cell(r, 1).alignment = left
+    ws3.cell(r, 2, "").border = bdr
+    total_cost_cell = ws3.cell(r, 3)
+    total_cost_cell.value = f"=SUM(C{cost_start_row}:C{cost_end_row})"
+    total_cost_cell.number_format = "$#,##0.00"; total_cost_cell.border = bdr
+    total_cost_cell.font = bold_font; total_cost_cell.alignment = right
+
+    # Delivery P&L result
+    r += 2
+    ws3.merge_cells(f"A{r}:C{r}")
+    ws3.cell(r, 1, "DELIVERY P&L").font = gold_font
+    ws3.cell(r, 1).fill = gold_fill; ws3.cell(r, 1).border = bdr; ws3.cell(r, 1).alignment = center
+    ws3.row_dimensions[r].height = 20
+
+    r += 1
+    ws3.row_dimensions[r].height = 18
+    ws3.cell(r, 1, "Charged to Client").font = norm_font; ws3.cell(r, 1).border = bdr; ws3.cell(r, 1).alignment = left
+    ws3.cell(r, 2, "").border = bdr
+    ws3.cell(r, 3, delivery_charge).number_format = "$#,##0.00"; ws3.cell(r, 3).border = bdr; ws3.cell(r, 3).alignment = right
+
+    r += 1
+    ws3.row_dimensions[r].height = 18
+    ws3.cell(r, 1, "Total Delivery Costs").font = norm_font; ws3.cell(r, 1).border = bdr; ws3.cell(r, 1).alignment = left
+    ws3.cell(r, 2, "").border = bdr
+    ref_cost_row = cost_end_row + 1
+    ws3.cell(r, 3, f"=C{ref_cost_row}").number_format = "$#,##0.00"; ws3.cell(r, 3).border = bdr; ws3.cell(r, 3).alignment = right
+
+    r += 1
+    ws3.row_dimensions[r].height = 22
+    net_cell_row = r
+    ws3.cell(r, 1, "Net Profit / (Loss) on Delivery").font = Font(bold=True, size=10)
+    ws3.cell(r, 1).border = Border(top=thick_side, bottom=thick_side, left=thin, right=thin)
+    ws3.cell(r, 1).alignment = left
+    ws3.cell(r, 2, "").border = Border(top=thick_side, bottom=thick_side, left=thin, right=thin)
+    net_c = ws3.cell(r, 3)
+    net_c.value = f"={delivery_charge}-C{ref_cost_row}"
+    net_c.number_format = "$#,##0.00"
+    net_c.font = Font(bold=True, size=10)
+    net_c.border = Border(top=thick_side, bottom=thick_side, left=thin, right=thin)
+    net_c.alignment = right
+    # Note: colour is static since formula is dynamic — add a helper note
+    r += 1
+    ws3.cell(r, 1, "ℹ  Positive = profit on delivery  |  Negative = loss on delivery").font = Font(italic=True, size=8, color="888888")
+    ws3.cell(r, 1).alignment = left
+
+    xlsx_path = Path(output_path).with_name(Path(output_path).stem + "_INTERNAL.xlsx")
+    wb.save(xlsx_path)
+    return str(xlsx_path)
+
+
+def draw_invoice(inv, output_path):
+    doc = SimpleDocTemplate(
+        output_path,
+        pagesize=letter,
+        leftMargin=0.28 * inch,
+        rightMargin=0.28 * inch,
+        topMargin=1.55 * inch,
+        bottomMargin=1.00 * inch,
+    )
+    doc._gg_invoice = inv
+
+    elements = []
+    temp_images = []
+
+    label_style = ParagraphStyle(
+        "label_style",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=8,
+        textColor=DARK,
+        leading=10,
+    )
+    value_style = ParagraphStyle(
+        "value_style",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=8,
+        textColor=BLACK,
+        leading=10,
+    )
+    cell_style = ParagraphStyle(
+        "cell_style",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=8,
+        textColor=BLACK,
+        leading=10,
+    )
+    note_style = ParagraphStyle(
+        "note_style",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=7.3,
+        textColor=DARK,
+        leading=10,
+    )
+    notes_bold_style = ParagraphStyle(
+        "notes_bold_style",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=7.5,
+        textColor=DARK,
+        leading=11,
+    )
+    invoice_title_style = ParagraphStyle(
+        "invoice_title_style",
+        parent=styles["Title"],
+        fontName="Helvetica-Bold",
+        fontSize=17,
+        textColor=BLACK,
+        alignment=1,
+        spaceAfter=6,
+    )
+
+    # Logo is drawn by _NumberedCanvas on every page (see _draw_footer_and_header)
+
+    client_rows = [
+        [Paragraph("Tel. | Mob.:", label_style), Paragraph(inv.get("client_phone", ""), value_style)],
+        [Paragraph("Name:", label_style), Paragraph(inv.get("client_name", ""), value_style)],
+    ]
+
+    if inv.get("client_email"):
+        client_rows.append([Paragraph("Email:", label_style), Paragraph(inv.get("client_email", ""), value_style)])
+
+    for idx, line in enumerate(inv.get("client_address", []) or []):
+        client_rows.append([
+            Paragraph("Del. Address:" if idx == 0 else "", label_style),
+            Paragraph(line, value_style),
+        ])
+
+    client_tbl = Table(client_rows, colWidths=[1.05 * inch, CONTENT_WIDTH - 1.05 * inch])
+    client_tbl.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 1),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    elements.append(client_tbl)
+    elements.append(Spacer(1, 10))
+
+    elements.append(Paragraph("Invoice", invoice_title_style))
+
+    # EXACT same total width as item table
+    meta_widths = [1.45 * inch, 1.40 * inch, 1.35 * inch, CONTENT_WIDTH - 1.45 * inch - 1.40 * inch - 1.35 * inch]
+    meta_data = [
+        ["Invoice Date:", "Invoice", "Client No:", "Your Reference:"],
+        [inv.get("date", ""), inv.get("number", ""), str(inv.get("client_no", "")), inv.get("reference", "")],
+    ]
+    meta_tbl = Table(meta_data, colWidths=meta_widths)
+    meta_tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), BLACK),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, 0), 8),
+        ("FONTNAME", (0, 1), (-1, 1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 1), (-1, 1), 8.5),
+        ("GRID", (0, 0), (-1, -1), 0.3, BORDER),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(meta_tbl)
+    elements.append(Spacer(1, 12))
+
+    headers = ["ITEM NO.", "DESCRIPTION", "EST. DELIVERY", "TYPE", "QTY", "UNIT PRICE", "DISC.", "TOTAL", "PHOTO"]
+    rows = [headers]
+
+    for item in inv.get("items", []):
+        qty = item.get("qty", 0)
+        unit_price = item.get("unit_price", 0)
+        disc = item.get("discount", 0)
+        line_total = qty * unit_price * (1 - disc)
+
+        photo_cell = ""
+        img_path = _decode_image(item.get("image", ""))
+
+        if img_path:
+            temp_images.append(img_path)
+            try:
+                img = Image(img_path, width=0.96 * inch, height=0.70 * inch)
+                img.hAlign = "CENTER"
+                photo_cell = img
+            except Exception:
+                photo_cell = ""
+
+        rows.append([
+            Paragraph(str(item.get("no", "")), cell_style),
+            Paragraph(item.get("description", ""), cell_style),
+            Paragraph(item.get("delivery", ""), cell_style),
+            Paragraph(item.get("unit", ""), cell_style),
+            Paragraph(str(qty), cell_style),
+            Paragraph(usd(unit_price), cell_style),
+            Paragraph(f"{disc * 100:.0f}%" if disc else "", cell_style),
+            Paragraph(usd(line_total), cell_style),
+            photo_cell,
+        ])
+
+    # Calculate row heights: fixed header, bounded data rows
+    HDR_H   = 0.45 * inch
+    DATA_H  = 0.85 * inch   # max row height — prevents runaway cell growth
+    row_heights = [HDR_H] + [DATA_H] * (len(rows) - 1)
+    item_tbl = Table(rows, colWidths=ITEM_COL_WIDTHS,
+                     rowHeights=row_heights, repeatRows=1)
+    item_tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), BLACK),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, 0), 7.5),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("GRID", (0, 0), (-1, -1), 0.3, BORDER),
+        ("TOPPADDING", (0, 1), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-2, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-2, -1), 4),
+        ("LEFTPADDING", (-1, 1), (-1, -1), 2),
+        ("RIGHTPADDING", (-1, 1), (-1, -1), 2),
+        ("ALIGN", (3, 1), (8, -1), "CENTER"),
+    ]))
+    elements.append(item_tbl)
+    elements.append(Spacer(1, 10))
+
+    subtotal = sum(i.get("qty", 0) * i.get("unit_price", 0) * (1 - i.get("discount", 0)) for i in inv.get("items", []))
+    delivery_charge = inv.get("delivery_charge", 0) or 0
+    tax_amt = (subtotal + delivery_charge) * (inv.get("tax_rate", 0) or 0)
+    total = subtotal + delivery_charge + tax_amt
+
+    # Right aligned delivery label
+    if inv.get("delivery_type"):
+        delivery_tbl = Table([[Paragraph(f"<b>{inv.get('delivery_type')}</b>", cell_style)]], colWidths=[CONTENT_WIDTH])
+        delivery_tbl.setStyle(TableStyle([
+            ("ALIGN", (0, 0), (-1, -1), "RIGHT"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        elements.append(delivery_tbl)
+        elements.append(Spacer(1, 4))
+
+    totals_tbl = Table([
+        ["SubTotal", usd(subtotal)],
+        ["Delivery Charge", usd(delivery_charge)],
+        ["Sales Tax", usd(tax_amt)],
+        ["Total", usd(total)],
+    ], colWidths=[1.7 * inch, 1.0 * inch])
+    totals_tbl.setStyle(TableStyle([
+        ("LINEABOVE", (0, 0), (-1, 0), 0.8, BLACK),
+        ("LINEBELOW", (0, 2), (-1, 2), 0.8, BORDER),
+        ("LINEBELOW", (0, 3), (-1, 3), 0.8, BLACK),
+        ("FONTNAME", (0, 0), (-1, -2), "Helvetica"),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+
+    totals_wrap = Table([["", totals_tbl]], colWidths=[CONTENT_WIDTH - 2.70 * inch, 2.70 * inch])
+    totals_wrap.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    elements.append(totals_wrap)
+    elements.append(Spacer(1, 12))
+
+    # ── Payment plan (installments) ───────────────────────────────────────────
+    installments = inv.get("installments", [])
+    if installments and inv.get("payment_terms") == "installments":
+        split_type = inv.get("installment_split_type", "amount")
+        # Calculate amounts, force last installment = total - sum(others)
+        # so the payment plan total ALWAYS exactly matches the invoice total
+        amts = []
+        for inst in installments:
+            val = float(inst.get("val", 0) or 0)
+            if split_type == "pct":
+                amts.append(round(total * (val / 100.0), 2))
+            else:
+                amts.append(round(val, 2))
+        if amts:
+            amts[-1] = round(total - sum(amts[:-1]), 2)  # exact match, no rounding error
+
+        # Build rows: header + each installment + exact total
+        plan_rows = [["Payment Terms", "", ""]]
+        for i, (inst, amt) in enumerate(zip(installments, amts)):
+            label = f"{i+1}{'st' if i==0 else 'nd' if i==1 else 'rd' if i==2 else 'th'} Installment"
+            plan_rows.append([label, inst.get("date", ""), usd(amt)])
+        plan_rows.append(["", "", usd(total)])  # always exactly the invoice total
+
+        plan_tbl = Table(plan_rows, colWidths=[1.4*inch, 1.1*inch, 0.85*inch])
+        plan_style = [
+            ("FONTNAME",   (0,0), (-1,0),   "Helvetica-Bold"),
+            ("FONTNAME",   (0,1), (-1,-2),  "Helvetica"),
+            ("FONTNAME",   (0,-1),(-1,-1),  "Helvetica-Bold"),
+            ("FONTSIZE",   (0,0), (-1,-1),  8),
+            ("ALIGN",      (1,0), (1,-1),   "CENTER"),
+            ("ALIGN",      (2,0), (2,-1),   "RIGHT"),
+            ("TOPPADDING", (0,0), (-1,-1),  3),
+            ("BOTTOMPADDING",(0,0),(-1,-1), 3),
+            ("LINEABOVE",  (0,0), (-1,0),   0.6, colors.HexColor("#231f1e")),
+            ("LINEBELOW",  (0,-2),(-1,-2),  0.6, colors.HexColor("#d8d5d2")),
+            ("LINEBELOW",  (0,-1),(-1,-1),  0.6, colors.HexColor("#231f1e")),
+            ("SPAN",       (0,0), (1,0)),
+        ]
+        plan_tbl.setStyle(TableStyle(plan_style))
+
+        plan_wrap = Table([["", plan_tbl]],
+                          colWidths=[CONTENT_WIDTH - 3.35*inch, 3.35*inch])
+        plan_wrap.setStyle(TableStyle([
+            ("LEFTPADDING",  (0,0), (-1,-1), 0),
+            ("RIGHTPADDING", (0,0), (-1,-1), 0),
+            ("VALIGN",       (0,0), (-1,-1), "TOP"),
+        ]))
+        elements.append(plan_wrap)
+        elements.append(Spacer(1, 10))
+
+    # ── Notes (from invoice form) ──────────────────────────────────
+    if inv.get("notes", "").strip():
+        elements.append(Spacer(1, 6))
+        elements.append(Paragraph(inv["notes"].strip(), notes_bold_style))
+        elements.append(Spacer(1, 4))
+
+    # Fixed payment line always shown, then bold payment method on same line
+    payment_method = inv.get("payment_terms", "advance")
+    bold_text = "Paid in advance." if payment_method != "installments" else "Paid in installments."
+    pay_line = (
+        f"Payment is via check, bank transfer, or credit card. "
+        f"Please note that credit card payments incur a 3% processing fee. "
+        f"<b>{bold_text}</b>"
+    )
+    elements.append(Paragraph(pay_line, note_style))
+    elements.append(Spacer(1, 6))
+    elements.append(Paragraph(
+        "Bank account details #: 930283558  Routing number: 061092387.  Zelle email: rana_salah@goldenglam.nl",
+        note_style
+    ))
+    elements.append(Spacer(1, 6))
+    elements.append(Paragraph(
+        "All quote(s), (provisional) order(s) (confirmations), sales and deliveries are subject to the Golden Glam Terms of orders and payments, the Golden Glam Reseller Terms and the CBM General Sales Terms and Conditions. US law applies.",
+        note_style
+    ))
+
+    _NumberedCanvas._gg_inv = inv  # make invoice accessible inside canvas callbacks
+    doc.build(elements, onFirstPage=_footer, onLaterPages=_footer,
+              canvasmaker=_NumberedCanvas)
+
+    xlsx_path = _write_internal_excel(inv, output_path)
+
+    for img in temp_images:
+        try:
+            os.remove(img)
+        except Exception:
+            pass
+
+    return xlsx_path
