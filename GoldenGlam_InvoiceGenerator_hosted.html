@@ -317,11 +317,13 @@
     <div class="field"><label>Description</label><input id="ni_desc" placeholder="Item name | dimensions"></div>
     <div class="field"><label>Est. delivery</label><input id="ni_del" placeholder="e.g. In Stock / Mid March"></div>
     <div class="grid3">
-      <div class="field"><label>Unit list price ($)</label><input id="ni_price" type="number"></div>
-      <div class="field"><label>Unit cost before disc. ($) <span class="badge-internal">internal</span></label><input id="ni_raw_cost" type="number" placeholder="e.g. 799" oninput="recalcLibCost()"></div>
-      <div class="field"><label>Cost discount (%) <span class="badge-internal">internal</span></label><input id="ni_cost_disc" type="number" placeholder="e.g. 20" oninput="recalcLibCost()"></div>
+      <div class="field"><label>Unit list price ($)</label><input id="ni_price" type="number" oninput="recalcLibNet('price')"></div>
+      <div class="field"><label>Discount (%)</label><input id="ni_disc" type="number" placeholder="e.g. 28" step="0.1" oninput="recalcLibNet('disc')"></div>
+      <div class="field"><label>Net price ($) <span style="font-size:10px;color:var(--mid);font-weight:400">after disc.</span></label><input id="ni_net" type="number" step="0.01" placeholder="or fill this" oninput="recalcLibNet('net')"></div>
     </div>
     <div class="grid3">
+      <div class="field"><label>Unit cost before disc. ($) <span class="badge-internal">internal</span></label><input id="ni_raw_cost" type="number" placeholder="e.g. 799" oninput="recalcLibCost()"></div>
+      <div class="field"><label>Cost discount (%) <span class="badge-internal">internal</span></label><input id="ni_cost_disc" type="number" placeholder="e.g. 20" oninput="recalcLibCost()"></div>
       <div class="field"><label>Unit cost ($) <span class="badge-internal">auto-calculated</span></label><input id="ni_cost" type="number" style="background:#f5f2ef"></div>
       <div class="field">
         <label>Type</label>
@@ -598,7 +600,7 @@ function addItem(pre={}){
       <div class="field"><label>Est. delivery</label><input id="i${id}_del" value="${pre.del||''}" placeholder="In Stock / Mid March"></div>
       <div class="field"><label>Unit list price ($)</label><input type="number" id="i${id}_price" value="${pre.price||''}" step="0.01" oninput="recalcNetPrice(${id},'price')"></div>
       <div class="field"><label>Discount (%)</label><input type="number" id="i${id}_disc" value="${pre.disc||''}" step="0.1" min="0" max="100" placeholder="0" oninput="recalcNetPrice(${id},'disc')"></div>
-      <div class="field"><label>Net price ($) <span style="font-size:10px;color:var(--mid);font-weight:400">after disc.</span></label><input type="number" id="i${id}_net" value="${pre.price&&pre.disc?((pre.price*(1-pre.disc/100)).toFixed(2)):pre.price||''}" step="0.01" placeholder="or fill this" oninput="recalcNetPrice(${id},'net')"></div>
+      <div class="field"><label>Net price ($) <span style="font-size:10px;color:var(--mid);font-weight:400">after disc.</span></label><input type="number" id="i${id}_net" value="${pre.net||(pre.price&&pre.disc?((pre.price*(1-pre.disc/100)).toFixed(2)):pre.price||'')}" step="0.01" placeholder="or fill this" oninput="recalcNetPrice(${id},'net')"></div>
       <div class="field"></div>
     </div>
     <div class="grid4">
@@ -1066,7 +1068,7 @@ function renderLibraryList(){
     <div class="saved-row">
       <div>
         <div class="name">${l.desc}</div>
-        <div class="meta">#${l.no}${l.vendor?' | '+l.vendor:''}${l.vno?' | no: '+l.vno:''} &nbsp;|&nbsp; List: $${l.price}${l.cost?' | Cost: $'+l.cost:''}</div>
+        <div class="meta">#${l.no}${l.vendor?' | '+l.vendor:''}${l.vno?' | no: '+l.vno:''} &nbsp;|&nbsp; $${l.price}${l.disc?' ('+l.disc+'% off → $'+(l.price*(1-l.disc/100)).toFixed(0)+')':''}${l.cost?' | Cost: $'+l.cost:''}</div>
       </div>
       <div class="row-actions">
         <button class="btn btn-xs" onclick="addItemFromLib(${i})">Add to invoice</button>
@@ -1077,9 +1079,26 @@ function renderLibraryList(){
 function addItemFromLib(i){
   const l=library[i];
   showTab('invoice', document.querySelector('.nav-btn'));
-  addItem({desc:l.desc,no:l.no,vendor:l.vendor||'',vno:l.vno||'',price:l.price,raw_cost:l.raw_cost||'',cost_disc:l.cost_disc||'',cost:l.cost,unit:l.unit||'Piece',del:l.del||''});
+  addItem({desc:l.desc,no:l.no,vendor:l.vendor||'',vno:l.vno||'',price:l.price,disc:l.disc||'',raw_cost:l.raw_cost||'',cost_disc:l.cost_disc||'',cost:l.cost,unit:l.unit||'Piece',del:l.del||''});
 }
 function delLibItem(i){ if(confirm('Delete?')){ library.splice(i,1); persist(); renderLibraryList(); refreshLibraryDropdowns(); } }
+function recalcLibNet(changed){
+  const price = document.getElementById('ni_price');
+  const disc  = document.getElementById('ni_disc');
+  const net   = document.getElementById('ni_net');
+  const p = parseFloat(price.value)||0;
+  const d = parseFloat(disc.value)||0;
+  const n = parseFloat(net.value)||0;
+  if(changed === 'price' || changed === 'disc'){
+    if(p > 0) net.value = (p*(1-d/100)).toFixed(2);
+    else net.value = '';
+  } else if(changed === 'net'){
+    if(p > 0 && n > 0) disc.value = (Math.max(0,(1-n/p)*100)).toFixed(1);
+    else if(n > 0 && d > 0) price.value = (n/(1-d/100)).toFixed(2);
+    else if(n > 0) price.value = n.toFixed(2);
+  }
+}
+
 function recalcLibCost(){
   const raw  = parseFloat(document.getElementById('ni_raw_cost')?.value)||0;
   const disc = parseFloat(document.getElementById('ni_cost_disc')?.value)||0;
@@ -1093,6 +1112,7 @@ function saveLibItem(){
     vno:document.getElementById('ni_vendor_no').value.trim(),
     desc:document.getElementById('ni_desc').value.trim(),
     price:document.getElementById('ni_price').value,
+    disc:document.getElementById('ni_disc')?.value||'',
     raw_cost:document.getElementById('ni_raw_cost').value,
     cost_disc:document.getElementById('ni_cost_disc').value,
     cost:document.getElementById('ni_cost').value,
@@ -1101,7 +1121,7 @@ function saveLibItem(){
   };
   if(!l.desc) return;
   library.push(l); persist(); renderLibraryList(); refreshLibraryDropdowns();
-  ['ni_no','ni_vendor_name','ni_vendor_no','ni_desc','ni_del','ni_price','ni_raw_cost','ni_cost_disc','ni_cost','ni_unit_custom'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  ['ni_no','ni_vendor_name','ni_vendor_no','ni_desc','ni_del','ni_price','ni_disc','ni_net','ni_raw_cost','ni_cost_disc','ni_cost','ni_unit_custom'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   const niUnit = document.getElementById('ni_unit'); if(niUnit) niUnit.value='Piece';
   toggleLibSetOf();
   document.getElementById('ni_unit').value='Piece';
@@ -1221,6 +1241,7 @@ function captureCurrentInvoice(){
       del:       document.getElementById('i'+id+'_del')?.value||'',
       unit:      getUnit(id),
       photo:     _compressedImgs[id]||'',
+      net:       document.getElementById('i'+id+'_net')?.value||'',
     }))
   };
   return inv;
@@ -1273,7 +1294,7 @@ function loadInvoice(idx){
   (inv.lineItems||[]).forEach(li => {
     addItem({
       no: li.no, desc: li.desc, vendor: li.vendor, vno: li.vno,
-      qty: li.qty, price: li.price, disc: li.disc, net: (li.price&&li.disc?(li.price*(1-li.disc/100)).toFixed(2):li.price||''),
+      qty: li.qty, price: li.price, disc: li.disc, net: li.net||'',
       raw_cost: li.raw_cost, cost_disc: li.cost_disc, cost: li.cost,
       del: li.del, unit: li.unit, photo: li.photo||'',
     });
