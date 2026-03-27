@@ -151,6 +151,8 @@ def _decode_image(image_value: str) -> str | None:
 
 class _NumberedCanvas(canvas.Canvas):
     """Two-pass canvas that knows the total page count."""
+    _gg_inv = {}  # set by draw_invoice before doc.build()
+
     def __init__(self, *args, **kwargs):
         canvas.Canvas.__init__(self, *args, **kwargs)
         self._saved_page_states = []
@@ -168,7 +170,7 @@ class _NumberedCanvas(canvas.Canvas):
         canvas.Canvas.save(self)
 
     def _draw_footer_and_header(self, total_pages):
-        inv = getattr(self._doc, "_gg_invoice", {}) if hasattr(self, "_doc") else {}
+        inv = _NumberedCanvas._gg_inv
         print_date = fmt_date_for_footer(inv.get("date", ""))
         page_num = self.getPageNumber()
 
@@ -836,26 +838,21 @@ def draw_invoice(inv, output_path):
         elements.append(plan_wrap)
         elements.append(Spacer(1, 10))
 
-    pay_map = {
-        "standard": (
-            f"Payment is via check, bank transfer, or credit card. Please note that credit card payments incur a 3% processing fee. "
-            f"Please refer to order no. {inv.get('number','')} and client no. {inv.get('client_no','')} with your payment."
-        ),
-        "advance": (
-            f"Payment is paid in advance. Please refer to order no. {inv.get('number','')} and client no. {inv.get('client_no','')} with your payment."
-        ),
-        "installments": (
-            f"Payment is in installments. Please refer to order no. {inv.get('number','')} and client no. {inv.get('client_no','')} with your payment."
-        ),
-    }
-
     # ── Notes (from invoice form) ──────────────────────────────────
     if inv.get("notes", "").strip():
         elements.append(Spacer(1, 6))
         elements.append(Paragraph(inv["notes"].strip(), notes_bold_style))
         elements.append(Spacer(1, 4))
 
-    elements.append(Paragraph(pay_map.get(inv.get("payment_terms", "standard"), pay_map["standard"]), note_style))
+    # Fixed payment line always shown, then bold payment method on same line
+    payment_method = inv.get("payment_terms", "advance")
+    bold_text = "Paid in advance." if payment_method != "installments" else "Paid in installments."
+    pay_line = (
+        f"Payment is via check, bank transfer, or credit card. "
+        f"Please note that credit card payments incur a 3% processing fee. "
+        f"<b>{bold_text}</b>"
+    )
+    elements.append(Paragraph(pay_line, note_style))
     elements.append(Spacer(1, 6))
     elements.append(Paragraph(
         "Bank account details #: 930283558  Routing number: 061092387.  Zelle email: rana_salah@goldenglam.nl",
@@ -867,6 +864,7 @@ def draw_invoice(inv, output_path):
         note_style
     ))
 
+    _NumberedCanvas._gg_inv = inv  # make invoice accessible inside canvas callbacks
     doc.build(elements, onFirstPage=_footer, onLaterPages=_footer,
               canvasmaker=_NumberedCanvas)
 
