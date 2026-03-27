@@ -837,7 +837,10 @@ async function buildSummary(){
     }
     const discPart = d.disc ? `|disc:${d.disc}%` : '';
     const delPart  = d.del  ? `|del:${d.del}`   : '';
-    return `[${d.no}]${d.desc}|${d.unit}|qty:${d.qty}|$${d.price.toFixed(2)}${discPart}|tot:$${d.lt.toFixed(2)}${delPart}${imgTag}`;
+    const safeDesc = d.desc.replace(/\|/g, '\u2044'); // replace | with fraction slash to avoid breaking parser
+    const safeDel  = d.del.replace(/\|/g, '\u2044');
+    const safeDelPart = safeDel ? `|del:${safeDel}` : '';
+    return `[${d.no}]${safeDesc}|${d.unit}|qty:${d.qty}|$${d.price.toFixed(2)}${discPart}|tot:$${d.lt.toFixed(2)}${safeDelPart}${imgTag}`;
   }));
 
   const tax=(sub+delChg)*taxRate/100;
@@ -1137,7 +1140,6 @@ function captureCurrentInvoice(){
     tax_rate:       document.getElementById('tax_rate').value,
     payment_terms:  document.getElementById('payment_terms').value,
     inv_notes:      document.getElementById('inv_notes').value,
-    payment_terms:  document.getElementById('payment_terms').value,
     installment_split_type: document.getElementById('installment_split_type')?.value||'amount',
     installments:   (()=>{
       const rows = document.querySelectorAll('.installment-row');
@@ -1205,7 +1207,7 @@ function loadInvoice(idx){
   }
   toggleDeliveryCustom();
   // Payment terms
-  document.getElementById('payment_terms').value = inv.payment_terms||'standard';
+  document.getElementById('payment_terms').value = inv.payment_terms||'advance';
   // Line items
   (inv.lineItems||[]).forEach(li => {
     addItem({
@@ -1218,7 +1220,7 @@ function loadInvoice(idx){
   refreshClientDropdown();
   recalc();
   // Restore installments
-  document.getElementById('payment_terms').value = inv.payment_terms||'standard';
+  document.getElementById('payment_terms').value = inv.payment_terms||'advance';
   toggleInstallments();
   if(inv.payment_terms === 'installments' && inv.installments){
     // Clear auto-added first installment
@@ -1330,28 +1332,69 @@ function recalcInstallments(){
 
 function validateInstallments(){
   const splitType = document.getElementById('installment_split_type').value;
-  const vals = Array.from(document.querySelectorAll('.installment-row .inst-val'))
-                    .map(i => parseFloat(i.value)||0);
+  const rows = Array.from(document.querySelectorAll('.installment-row'));
+  const vals = rows.map(r => parseFloat(r.querySelector('.inst-val').value)||0);
   const instTotal = vals.reduce((a,b)=>a+b, 0);
   const validEl = document.getElementById('installment-validation');
-  // Get the invoice total from the totals display
   const invoiceTotalStr = document.getElementById('t-total')?.textContent||'$0';
   const invoiceTotal = parseFloat(invoiceTotalStr.replace(/[$,]/g,''))||0;
+
+  // ── Per-row remaining hint ─────────────────────────────────────────────────
+  rows.forEach((row, idx) => {
+    let hint = row.querySelector('.inst-remaining');
+    if(!hint){
+      hint = document.createElement('div');
+      hint.className = 'inst-remaining';
+      hint.style.cssText = 'font-size:11px;margin-top:3px;font-style:italic';
+      row.querySelector('.inst-val').closest('.field').appendChild(hint);
+    }
+    const isLast = idx === rows.length - 1;
+    if(splitType === 'amount' && invoiceTotal > 0){
+      const sumSoFar = vals.slice(0, idx+1).reduce((a,b)=>a+b, 0);
+      const remaining = invoiceTotal - sumSoFar;
+      if(isLast){
+        hint.textContent = '↑ Last installment is auto-adjusted to match the total';
+        hint.style.color = 'var(--mid)';
+      } else {
+        const remaining = invoiceTotal - vals.slice(0, idx+1).reduce((a,b)=>a+b, 0);
+        if(remaining < 0){
+          hint.textContent = `⚠ Exceeds total by $${Math.abs(remaining).toFixed(2)}`;
+          hint.style.color = 'var(--danger)';
+        } else {
+          hint.textContent = `Remaining: $${remaining.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+          hint.style.color = remaining < 0.01 ? 'var(--mid)' : '#555';
+        }
+      }
+    } else if(splitType === 'pct'){
+      const pctSoFar = vals.slice(0, idx+1).reduce((a,b)=>a+b, 0);
+      const remaining = 100 - pctSoFar;
+      if(isLast){
+        hint.textContent = Math.abs(vals.reduce((a,b)=>a+b,0) - 100) < 0.01 ? '✓ Adds up to 100%' : `⚠ Totals ${vals.reduce((a,b)=>a+b,0).toFixed(1)}% — must be 100%`;
+        hint.style.color = Math.abs(vals.reduce((a,b)=>a+b,0) - 100) < 0.01 ? 'green' : 'var(--danger)';
+      } else {
+        hint.textContent = remaining < 0 ? `⚠ Over by ${Math.abs(remaining).toFixed(1)}%` : `Remaining: ${remaining.toFixed(1)}%`;
+        hint.style.color = remaining < 0 ? 'var(--danger)' : '#555';
+      }
+    } else {
+      hint.textContent = '';
+    }
+  });
+
+  // ── Overall validation message ─────────────────────────────────────────────
   if(splitType === 'pct'){
     if(Math.abs(instTotal - 100) > 0.01 && vals.some(v=>v>0)){
-      validEl.textContent = `⚠️ Percentages total ${instTotal.toFixed(1)}% — must equal 100%`;
-      validEl.style.display = '';
+      validEl.textContent = `⚠ Percentages total ${instTotal.toFixed(1)}% — must equal exactly 100%`;
+      validEl.style.color = 'var(--danger)'; validEl.style.display = '';
     } else { validEl.style.display = 'none'; }
   } else {
-    if(invoiceTotal > 0 && instTotal > invoiceTotal + 0.01){
-      validEl.textContent = `⚠️ Installments total $${instTotal.toFixed(2)} exceeds the invoice total. Maximum is $${invoiceTotal.toFixed(2)}.`;
-      validEl.style.display = '';
-    } else if(invoiceTotal > 0 && instTotal > 0 && Math.abs(instTotal - invoiceTotal) > 0.01){
-      validEl.textContent = `ℹ️ Installments total $${instTotal.toFixed(2)} — invoice total is $${invoiceTotal.toFixed(2)}. The last installment will be auto-adjusted to match.`;
-      validEl.style.color = 'var(--mid)';
-      validEl.style.display = '';
+    const sumExcludingLast = vals.slice(0,-1).reduce((a,b)=>a+b, 0);
+    if(invoiceTotal > 0 && sumExcludingLast > invoiceTotal + 0.01){
+      validEl.textContent = `⚠ Earlier installments already total $${sumExcludingLast.toFixed(2)} which exceeds the invoice total of $${invoiceTotal.toFixed(2)}. Please reduce them.`;
+      validEl.style.color = 'var(--danger)'; validEl.style.display = '';
+    } else if(invoiceTotal > 0 && Math.abs(instTotal - invoiceTotal) > 0.01 && vals.some(v=>v>0) && rows.length > 0){
+      validEl.textContent = `ℹ The last installment will be auto-adjusted from $${vals[vals.length-1]?.toFixed(2)||'0.00'} → $${(invoiceTotal - sumExcludingLast).toFixed(2)} to match the invoice total of $${invoiceTotal.toFixed(2)}.`;
+      validEl.style.color = 'var(--mid)'; validEl.style.display = '';
     } else {
-      validEl.style.color = 'var(--danger)';
       validEl.style.display = 'none';
     }
   }
