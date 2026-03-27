@@ -217,6 +217,69 @@ def generate_from_summary(summary_text: str) -> tuple[Path, Path]:
     return pdf_path, xlsx_path
 
 
+
+# ── Supabase persistent storage ────────────────────────────────────────────────
+import json
+import urllib.request
+import urllib.error
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+TABLE        = "gg_data"
+ROW_KEY      = "main"
+
+EMPTY_DATA = {"clients": [], "library": [], "vendors": [], "invoices": []}
+
+def _supabase_headers():
+    return {
+        "apikey":        SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type":  "application/json",
+        "Prefer":        "return=representation",
+    }
+
+def _load_data() -> dict:
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return dict(EMPTY_DATA)
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/{TABLE}?key=eq.{ROW_KEY}&select=value"
+        req = urllib.request.Request(url, headers=_supabase_headers())
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            rows = json.loads(resp.read())
+            if rows:
+                return rows[0].get("value") or dict(EMPTY_DATA)
+    except Exception as e:
+        print(f"[data] load error: {e}")
+    return dict(EMPTY_DATA)
+
+def _save_data(data: dict):
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return
+    try:
+        body = json.dumps({"key": ROW_KEY, "value": data}).encode()
+        hdrs = {**_supabase_headers(), "Prefer": "resolution=merge-duplicates,return=minimal"}
+        url  = f"{SUPABASE_URL}/rest/v1/{TABLE}"
+        req  = urllib.request.Request(url, data=body, headers=hdrs, method="POST")
+        urllib.request.urlopen(req, timeout=8)
+    except Exception as e:
+        print(f"[data] save error: {e}")
+
+
+@app.get("/api/data")
+def api_get_data():
+    return jsonify(_load_data())
+
+
+@app.post("/api/data")
+def api_save_data():
+    payload = request.get_json(silent=True) or {}
+    data    = _load_data()
+    for key in ("clients", "library", "vendors", "invoices"):
+        if key in payload:
+            data[key] = payload[key]
+    _save_data(data)
+    return jsonify({"ok": True})
+
 @app.get("/")
 def home():
     return send_from_directory(BASE_DIR, HTML_FILE.name)
