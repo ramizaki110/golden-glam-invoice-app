@@ -59,15 +59,15 @@ def parse_summary(summary_text: str) -> dict:
         delivery_charge = _clean_currency(m.group(3))
         tax_rate = float(m.group(4)) / 100.0
 
-    payment_terms = "standard"
+    payment_terms = "advance"  # default is now advance (no standard option)
     low = summary_text.lower()
-    if "pay:paid in advance" in low:
-        payment_terms = "advance"
-    elif "pay:payment in installments" in low or "pay:installments" in low:
+    if "pay:in installments" in low or "pay:installments" in low or "pay:payment in installments" in low:
         payment_terms = "installments"
+    elif "pay:paid in advance" in low:
+        payment_terms = "advance"
 
     notes = ""
-    m = re.search(r"\nnotes:(.+?)(?:\nINTERNAL|\Z)", summary_text, re.S)
+    m = re.search(r"\nnotes:(.+?)(?:\ninstallments:|\nINTERNAL|\Z)", summary_text, re.S)
     if m:
         notes = m.group(1).strip()
 
