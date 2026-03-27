@@ -114,8 +114,8 @@ def parse_summary(summary_text: str) -> dict:
         no, desc, unit, qty, unit_price, disc, _total, delivery, photo = g.groups()
         items.append({
             "no": no.strip(),
-            "description": " ".join(desc.strip().split()),
-            "delivery": " ".join(delivery.strip().split()),
+            "description": " ".join(desc.strip().split()).replace('⁄', '|'),
+            "delivery": " ".join(delivery.strip().split()).replace('⁄', '|'),
             "qty": int(qty),
             "unit": unit.strip(),
             "unit_price": _clean_currency(unit_price),
