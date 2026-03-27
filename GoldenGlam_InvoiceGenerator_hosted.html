@@ -212,18 +212,31 @@
 
   <!-- Installment plan -->
   <div class="card" id="installment-card" style="display:none">
-    <div class="card-title">💳 Payment plan
-      <span style="font-size:11px;font-weight:400;color:var(--mid);margin-left:8px">up to 5 installments</span>
-      <select id="installment_split_type" style="font-size:12px;padding:3px 8px;width:auto;margin-left:auto" onchange="recalcInstallments()">
-        <option value="amount">Split by amount ($)</option>
-        <option value="pct">Split by percentage (%)</option>
-      </select>
+    <div class="card-title">💳 Payment plan</div>
+
+    <!-- Step 1: choose count + split type -->
+    <div id="installment-setup" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+      <div class="field" style="margin:0;min-width:160px">
+        <label style="font-size:11px">Number of installments</label>
+        <select id="installment_count_sel" onchange="setupInstallmentRows()" style="margin-top:4px">
+          <option value="">— choose —</option>
+          <option value="2">2 installments</option>
+          <option value="3">3 installments</option>
+          <option value="4">4 installments</option>
+          <option value="5">5 installments</option>
+        </select>
+      </div>
+      <div class="field" style="margin:0;min-width:160px">
+        <label style="font-size:11px">Split by</label>
+        <select id="installment_split_type" onchange="recalcInstallments()" style="margin-top:4px">
+          <option value="amount">Amount ($)</option>
+          <option value="pct">Percentage (%)</option>
+        </select>
+      </div>
     </div>
+
     <div id="installment-rows"></div>
-    <div style="margin-top:8px;display:flex;gap:8px">
-      <button class="btn btn-sm" onclick="addInstallment()" id="btn-add-installment">+ Add installment</button>
-    </div>
-    <div id="installment-validation" style="font-size:12px;color:var(--danger);margin-top:6px;display:none"></div>
+    <div id="installment-validation" style="font-size:12px;margin-top:8px;padding:6px 10px;border-radius:4px;display:none"></div>
   </div>
 
   <!-- Notes -->
@@ -1222,19 +1235,15 @@ function loadInvoice(idx){
   // Restore installments
   document.getElementById('payment_terms').value = inv.payment_terms||'advance';
   toggleInstallments();
-  if(inv.payment_terms === 'installments' && inv.installments){
-    // Clear auto-added first installment
-    document.getElementById('installment-rows').innerHTML='';
-    installmentCount=0;
+  if(inv.payment_terms === 'installments' && inv.installments && inv.installments.length){
+    const n = inv.installments.length;
+    document.getElementById('installment_count_sel').value = n;
     if(inv.installment_split_type)
       document.getElementById('installment_split_type').value = inv.installment_split_type;
-    inv.installments.forEach(inst => {
-      addInstallment();
-      const rows = document.querySelectorAll('.installment-row');
-      const last = rows[rows.length-1];
-      last.querySelector('.inst-date').value = inst.date||'';
-      last.querySelector('.inst-val').value = inst.val||'';
-    });
+    document.getElementById('installment-rows').innerHTML='';
+    installmentCount=0;
+    inv.installments.forEach(inst => _addInstallmentRow(inst.date||'', inst.val||''));
+    validateInstallments();
   }
   // Navigate to invoice tab
   showTab('invoice', document.querySelector('.nav-btn'));
@@ -1276,68 +1285,86 @@ function renderInvoiceLibrary(){
 
 // ── INSTALLMENT PAYMENT PLAN ───────────────────────────────────────────────────
 let installmentCount = 0;
-const MAX_INSTALLMENTS = 5;
 
 function toggleInstallments(){
   const val = document.getElementById('payment_terms').value;
   const card = document.getElementById('installment-card');
   card.style.display = val === 'installments' ? '' : 'none';
-  if(val === 'installments' && installmentCount === 0) addInstallment();
 }
 
-function addInstallment(){
-  if(installmentCount >= MAX_INSTALLMENTS){
-    alert('Maximum 5 installments allowed.'); return;
-  }
-  installmentCount++;
+function setupInstallmentRows(){
+  const n = parseInt(document.getElementById('installment_count_sel').value)||0;
+  if(!n) return;
   const container = document.getElementById('installment-rows');
+  container.innerHTML = '';
+  installmentCount = 0;
+  for(let i=0; i<n; i++) _addInstallmentRow();
+  validateInstallments();
+}
+
+function _addInstallmentRow(date='', val=''){
+  installmentCount++;
+  const idx = installmentCount;
+  const isLast = idx === parseInt(document.getElementById('installment_count_sel').value||'0');
   const splitType = document.getElementById('installment_split_type').value;
+  const container = document.getElementById('installment-rows');
   const div = document.createElement('div');
   div.className = 'installment-row';
-  div.style.cssText = 'display:grid;grid-template-columns:1.5rem 1fr 1fr auto;gap:8px;align-items:center;margin-bottom:8px';
-  div.dataset.id = installmentCount;
+  div.style.cssText = 'display:grid;grid-template-columns:1.5rem 1fr 1fr;gap:8px;align-items:start;margin-bottom:10px';
   div.innerHTML = `
-    <span style="font-size:11px;font-weight:700;color:var(--mid)">${installmentCount}</span>
+    <span style="font-size:11px;font-weight:700;color:var(--mid);padding-top:8px">${idx}</span>
     <div class="field" style="margin:0">
-      <input type="date" class="inst-date" placeholder="Date" oninput="validateInstallments()">
+      <label style="font-size:10px">Date</label>
+      <input type="date" class="inst-date" value="${date}" oninput="validateInstallments()">
     </div>
     <div class="field" style="margin:0">
-      <input type="number" class="inst-val" placeholder="${splitType==='pct'?'e.g. 50 (%)':'e.g. 500 ($)'}" step="0.01" min="0" oninput="validateInstallments()">
-    </div>
-    <button class="btn btn-xs btn-danger" onclick="removeInstallment(this)" style="height:30px">✕</button>`;
+      <label style="font-size:10px">${isLast ? 'Amount — <em style="color:var(--mid)">auto-adjusted</em>' : (splitType==='pct'?'Percentage (%)':'Amount ($)')}</label>
+      <input type="number" class="inst-val" value="${val}" placeholder="${splitType==='pct'?'e.g. 50':'e.g. 1500'}"
+             step="0.01" min="0" ${isLast?'style="background:#f5f2ef;font-weight:600" readonly':''}
+             oninput="validateInstallments()">
+      <div class="inst-remaining" style="font-size:11px;margin-top:3px;font-style:italic"></div>
+    </div>`;
   container.appendChild(div);
-  // Show/hide add button
-  document.getElementById('btn-add-installment').style.display = installmentCount >= MAX_INSTALLMENTS ? 'none' : '';
-  validateInstallments();
-}
-
-function removeInstallment(btn){
-  btn.closest('.installment-row').remove();
-  installmentCount--;
-  // Renumber
-  document.querySelectorAll('.installment-row').forEach((r,i) => {
-    r.querySelector('span').textContent = i+1;
-  });
-  document.getElementById('btn-add-installment').style.display = installmentCount >= MAX_INSTALLMENTS ? 'none' : '';
-  validateInstallments();
 }
 
 function recalcInstallments(){
-  const splitType = document.getElementById('installment_split_type').value;
-  document.querySelectorAll('.installment-row .inst-val').forEach(inp => {
-    inp.placeholder = splitType === 'pct' ? 'e.g. 50 (%)' : 'e.g. 500 ($)';
-  });
+  const n = parseInt(document.getElementById('installment_count_sel').value)||0;
+  if(!n) return;
+  // Preserve existing dates/values, rebuild with new split type
+  const existing = Array.from(document.querySelectorAll('.installment-row')).map(r=>({
+    date: r.querySelector('.inst-date').value,
+    val: r.querySelector('.inst-val').value
+  }));
+  document.getElementById('installment-rows').innerHTML='';
+  installmentCount=0;
+  for(let i=0; i<n; i++) _addInstallmentRow(existing[i]?.date||'', existing[i]?.val||'');
   validateInstallments();
 }
 
 function validateInstallments(){
   const splitType = document.getElementById('installment_split_type').value;
   const rows = Array.from(document.querySelectorAll('.installment-row'));
-  const vals = rows.map(r => parseFloat(r.querySelector('.inst-val').value)||0);
-  const instTotal = vals.reduce((a,b)=>a+b, 0);
+  if(!rows.length) return;
   const validEl = document.getElementById('installment-validation');
   const invoiceTotalStr = document.getElementById('t-total')?.textContent||'$0';
   const invoiceTotal = parseFloat(invoiceTotalStr.replace(/[$,]/g,''))||0;
+
+  // ── Auto-correct last row ───────────────────────────────────────────────────
+  const lastRow = rows[rows.length-1];
+  const lastVal = lastRow.querySelector('.inst-val');
+  if(invoiceTotal > 0 && rows.length > 1){
+    const sumOthers = rows.slice(0,-1).map(r=>parseFloat(r.querySelector('.inst-val').value)||0).reduce((a,b)=>a+b,0);
+    if(splitType === 'amount'){
+      const autoVal = Math.max(0, invoiceTotal - sumOthers);
+      lastVal.value = autoVal.toFixed(2);
+    } else {
+      const autoVal = Math.max(0, 100 - sumOthers);
+      lastVal.value = autoVal.toFixed(2);
+    }
+  }
+
+  const vals = rows.map(r => parseFloat(r.querySelector('.inst-val').value)||0);
+  const instTotal = vals.reduce((a,b)=>a+b, 0);
 
   // ── Per-row remaining hint ─────────────────────────────────────────────────
   rows.forEach((row, idx) => {
