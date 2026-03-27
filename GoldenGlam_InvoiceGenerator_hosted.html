@@ -946,7 +946,7 @@ async function buildSummary(){
           fr.readAsDataURL(d.imgFile);
         });
       }
-      imgTag = `\n    Photo-base64: ${b64}`;
+      imgTag = `\n    Photo-base64: ${b64.replace(/[\s]/g, '')}`; // strip whitespace - prevents parser breakage
     }
     const discPart = d.disc ? `|disc:${d.disc}%` : '';
     const delPart  = d.del  ? `|del:${d.del}`   : '';
