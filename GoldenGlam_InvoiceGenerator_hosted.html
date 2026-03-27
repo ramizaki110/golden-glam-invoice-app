@@ -465,22 +465,68 @@ async function loadServerData(){
     library       = d.library||[];
     vendors       = d.vendors||[];
     savedInvoices = d.invoices||[];
+    console.log('[GG] Loaded from Supabase:', {
+      clients: customClients.length,
+      library: library.length,
+      vendors: vendors.length,
+      invoices: savedInvoices.length
+    });
     renderClientList(); refreshClientDropdown();
     renderLibraryList(); refreshLibraryDropdowns();
     renderVendorList();  refreshVendorDropdowns();
     renderInvoiceLibrary();
-  } catch(e){ console.warn('Could not load server data:', e); }
+    if(customClients.length || vendors.length || savedInvoices.length || library.length){
+      _showSaveStatus(`✓ Loaded: ${customClients.length} clients, ${vendors.length} vendors, ${savedInvoices.length} invoices`);
+    }
+  } catch(e){
+    console.warn('Could not load server data:', e);
+    _showSaveStatus('⚠ Could not connect to server', true);
+  }
 }
 let items         = [];
 let itemCounter   = 0;
 
 function allClients(){ return [...PRESET_CLIENTS, ...customClients]; }
-function persist(){
-  fetch('/api/data', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({clients:customClients, library:library, vendors:vendors, invoices:savedInvoices})
-  }).catch(e => console.warn('Save failed:', e));
+async function persist(){
+  // Strip photos from invoices before saving to Supabase (photos are too large for DB)
+  // Photos are stored in _compressedImgs in-session only
+  const invoicesForDB = savedInvoices.map(inv => ({
+    ...inv,
+    lineItems: (inv.lineItems||[]).map(li => ({...li, photo:''}))
+  }));
+  try {
+    const res = await fetch('/api/data', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({clients:customClients, library:library, vendors:vendors, invoices:invoicesForDB})
+    });
+    const json = await res.json();
+    if(json.ok){
+      _showSaveStatus('✓ Saved');
+    } else {
+      _showSaveStatus('⚠ Save failed', true);
+      console.warn('Save failed:', json);
+    }
+  } catch(e){
+    _showSaveStatus('⚠ No connection', true);
+    console.warn('Save error:', e);
+  }
+}
+
+function _showSaveStatus(msg, isError=false){
+  let el = document.getElementById('_save_status');
+  if(!el){
+    el = document.createElement('div');
+    el.id = '_save_status';
+    el.style.cssText = 'position:fixed;bottom:16px;right:16px;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;z-index:9999;transition:opacity 0.5s';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.background = isError ? '#f8d7da' : '#d4edda';
+  el.style.color = isError ? '#721c24' : '#155724';
+  el.style.opacity = '1';
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => el.style.opacity='0', isError ? 4000 : 2000);
 }
 
 // ── TABS ───────────────────────────────────────────────────────────────────────
