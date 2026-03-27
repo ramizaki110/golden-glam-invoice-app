@@ -131,6 +131,8 @@
   <button class="nav-btn" onclick="showTab('vendors',this)">🏭 Vendor Book</button>
   <div class="nav-section">Export</div>
   <button class="nav-btn" onclick="showTab('export',this)">📄 Summary & Export</button>
+  <div class="nav-section" style="margin-top:auto">Sync</div>
+  <button class="nav-btn" onclick="loadServerData()" title="Reload all data from server">🔄 Refresh data</button>
   <div class="sidebar-footer">GoldenGlam_InvoiceGenerator.html<br>Open in any browser • No login needed</div>
 </nav>
 
@@ -458,29 +460,31 @@ let savedInvoices = [];
 
 // Load data from server on startup
 async function loadServerData(){
+  _showSaveStatus('⟳ Loading data…');
   try {
     const res = await fetch('/api/data');
+    if(!res.ok) throw new Error('HTTP ' + res.status);
     const d = await res.json();
-    customClients = d.clients||[];
-    library       = d.library||[];
-    vendors       = d.vendors||[];
-    savedInvoices = d.invoices||[];
+    customClients = Array.isArray(d.clients) ? d.clients : [];
+    library       = Array.isArray(d.library) ? d.library : [];
+    vendors       = Array.isArray(d.vendors) ? d.vendors : [];
+    savedInvoices = Array.isArray(d.invoices) ? d.invoices : [];
     console.log('[GG] Loaded from Supabase:', {
       clients: customClients.length,
       library: library.length,
       vendors: vendors.length,
       invoices: savedInvoices.length
     });
-    renderClientList(); refreshClientDropdown();
-    renderLibraryList(); refreshLibraryDropdowns();
-    renderVendorList();  refreshVendorDropdowns();
+    // Re-render all tabs regardless of which is active
+    renderClientList();   refreshClientDropdown();
+    renderLibraryList();  refreshLibraryDropdowns();
+    renderVendorList();   refreshVendorDropdowns();
     renderInvoiceLibrary();
-    if(customClients.length || vendors.length || savedInvoices.length || library.length){
-      _showSaveStatus(`✓ Loaded: ${customClients.length} clients, ${vendors.length} vendors, ${savedInvoices.length} invoices`);
-    }
+    const total = customClients.length + vendors.length + savedInvoices.length + library.length;
+    _showSaveStatus(`✓ Synced: ${vendors.length} vendors, ${savedInvoices.length} invoices, ${customClients.length} clients, ${library.length} items`);
   } catch(e){
-    console.warn('Could not load server data:', e);
-    _showSaveStatus('⚠ Could not connect to server', true);
+    console.warn('[GG] Load error:', e);
+    _showSaveStatus('⚠ Could not load from server — check connection', true);
   }
 }
 let items         = [];
@@ -1546,6 +1550,7 @@ function validateInstallments(){
 document.getElementById('inv_date').value = new Date().toISOString().slice(0,10);
 refreshClientDropdown();
 addItem();
+loadServerData(); // load all libraries from Supabase on startup
 </script>
 </body>
 </html>
