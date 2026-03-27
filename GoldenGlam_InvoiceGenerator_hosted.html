@@ -688,9 +688,10 @@ function addItem(pre={}){
   refreshLibraryDropdowns();
   // If a photo was passed in (e.g. loading from invoice library), restore it immediately
   if(pre.photo){
-    _compressedImgs[id] = pre.photo;
+    const cleanPhoto = pre.photo.replace(/[\s]/g, ""); // strip any whitespace from stored base64
+    _compressedImgs[id] = cleanPhoto;
     const prev = document.getElementById('i'+id+'_imgprev');
-    if(prev){ prev.src = pre.photo; prev.style.display = ''; }
+    if(prev){ prev.src = cleanPhoto; prev.style.display = ''; }
   }
   recalc();
 }
@@ -1311,12 +1312,19 @@ function saveCurrentInvoice(){
   }
   persist();
   renderInvoiceLibrary();
-  alert(`Invoice ${label} saved to library!`);
+  // Save photos separately to server (bypass 1MB row limit)
+  savePhotosToServer(inv).then(() => {
+    alert(`Invoice ${label} saved to library!`);
+  });
 }
 
-function loadInvoice(idx){
+async function loadInvoice(idx){
   if(!confirm('Load this invoice? Any unsaved changes to the current invoice will be lost.')) return;
-  const inv = savedInvoices[idx];
+  const inv = JSON.parse(JSON.stringify(savedInvoices[idx])); // deep copy
+  // Fetch photos from server before rendering
+  _showSaveStatus('⟳ Loading photos…');
+  await loadPhotosFromServer(inv);
+  _showSaveStatus('');
   // Clear current state
   items=[]; itemCounter=0;
   document.getElementById('items-container').innerHTML='';
@@ -1346,7 +1354,7 @@ function loadInvoice(idx){
       no: li.no, desc: li.desc, vendor: li.vendor, vno: li.vno,
       qty: li.qty, price: li.price, disc: li.disc, net: li.net||'',
       raw_cost: li.raw_cost, cost_disc: li.cost_disc, cost: li.cost,
-      del: li.del, unit: li.unit, photo: li.photo||'',
+      del: li.del, unit: li.unit, photo: (li.photo||"").replace(/[\s]/g, ""),
     });
   });
   refreshClientDropdown();
@@ -1543,6 +1551,45 @@ function validateInstallments(){
     } else {
       validEl.style.display = 'none';
     }
+  }
+}
+
+
+// ── PHOTO PERSISTENCE ──────────────────────────────────────────────────────────
+function _photoKey(invNum, itemNo){
+  return `${invNum||'draft'}_${itemNo||'item'}`;
+}
+
+async function savePhotosToServer(inv){
+  // Upload each item's photo to the server's /api/photo endpoint
+  const lineItems = inv.lineItems||[];
+  for(const li of lineItems){
+    if(li.photo && li.photo.startsWith('data:')){
+      const key = _photoKey(inv.inv_num, li.no);
+      try {
+        await fetch('/api/photo', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({key, data: li.photo.replace(/[\s]/g,'')})
+        });
+      } catch(e){ console.warn('Photo save failed for', key, e); }
+    }
+  }
+}
+
+async function loadPhotosFromServer(inv){
+  // Fetch photos from server and restore to _compressedImgs and line item prevs
+  const lineItems = inv.lineItems||[];
+  for(const li of lineItems){
+    if(li.photo && li.photo.startsWith('data:')) continue; // already have it
+    const key = _photoKey(inv.inv_num, li.no);
+    try {
+      const res = await fetch(`/api/photo/${encodeURIComponent(key)}`);
+      const j = await res.json();
+      if(j.ok && j.data){
+        li.photo = j.data.replace(/\s/g, ""); // strip whitespace, restore to invoice object for addItem
+      }
+    } catch(e){ console.warn('Photo load failed for', key, e); }
   }
 }
 
