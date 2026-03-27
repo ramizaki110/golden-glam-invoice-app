@@ -105,7 +105,7 @@ def parse_summary(summary_text: str) -> dict:
     items_part = "\n".join(cleaned_lines).strip()
 
     item_pattern = re.compile(
-        r"\[([^\]]+)\](.*?)\|([^|\n]+)\|qty:(\d+)\|\$(-?[0-9.,]+)(?:\|disc:([0-9.]+)%?)?\|tot:\$(-?[0-9.,]+)(?:\|del:(.*?))?(?:\n\s*Photo-base64:\s*(data:image\/[a-zA-Z]+;base64,[A-Za-z0-9+/=\s]+))?(?=\n\[|\n[^\n|]*Delivery(?: \([^)]+\))?\||\npay:|\nnotes:|\ninstallments:|\nINTERNAL|\Z)",
+        r"\[([^\]]+)\](.*?)\|([^|\n]+)\|qty:(\d+)\|\$(-?[0-9.,]+)(?:\|disc:([0-9.]+)%?)?\|tot:\$(-?[0-9.,]+)(?:\|del:([^\n]*))?(?:\n\s*Photo-base64:\s*(data:image\/[a-zA-Z]+;base64,[A-Za-z0-9+/=]+))?(?=\n\[|\n[^\n|]*Delivery(?: \([^)]+\))?\||\npay:|\nnotes:|\ninstallments:|\nINTERNAL|\Z)",
         re.S,
     )
 
@@ -279,6 +279,57 @@ def api_save_data():
             data[key] = payload[key]
     _save_data(data)
     return jsonify({"ok": True})
+
+@app.get("/api/photo/<path:key>")
+def api_get_photo(key):
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return jsonify({"ok": False, "error": "No DB"}), 503
+    try:
+        import urllib.parse
+        url = f"{SUPABASE_URL}/rest/v1/gg_photos?key=eq.{urllib.parse.quote(key)}&select=data"
+        req = urllib.request.Request(url, headers=_supabase_headers())
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            rows = json.loads(resp.read())
+            if rows:
+                return jsonify({"ok": True, "data": rows[0]["data"]})
+            return jsonify({"ok": False, "data": ""})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.post("/api/photo")
+def api_save_photo():
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return jsonify({"ok": False, "error": "No DB"}), 503
+    payload = request.get_json(silent=True) or {}
+    key  = payload.get("key", "")
+    data = payload.get("data", "")
+    if not key:
+        return jsonify({"ok": False, "error": "Missing key"}), 400
+    try:
+        body = json.dumps({"key": key, "data": data}).encode()
+        hdrs = {**_supabase_headers(), "Prefer": "resolution=merge-duplicates,return=minimal"}
+        url  = f"{SUPABASE_URL}/rest/v1/gg_photos"
+        req  = urllib.request.Request(url, data=body, headers=hdrs, method="POST")
+        urllib.request.urlopen(req, timeout=10)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.delete("/api/photo/<path:key>")
+def api_delete_photo(key):
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return jsonify({"ok": True})
+    try:
+        import urllib.parse
+        url = f"{SUPABASE_URL}/rest/v1/gg_photos?key=eq.{urllib.parse.quote(key)}"
+        req = urllib.request.Request(url, headers=_supabase_headers(), method="DELETE")
+        urllib.request.urlopen(req, timeout=8)
+    except Exception:
+        pass
+    return jsonify({"ok": True})
+
 
 @app.get("/")
 def home():
