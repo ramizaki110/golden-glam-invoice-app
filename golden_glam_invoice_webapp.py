@@ -105,7 +105,7 @@ def parse_summary(summary_text: str) -> dict:
     items_part = "\n".join(cleaned_lines).strip()
 
     item_pattern = re.compile(
-        r"\[([^\]]+)\](.*?)\|([^|\n]+)\|qty:(\d+)\|\$(-?[0-9.,]+)(?:\|disc:([0-9.]+)%?)?\|tot:\$(-?[0-9.,]+)\|del:(.*?)(?:\n\s*Photo-base64:\s*(data:image\/[a-zA-Z]+;base64,[A-Za-z0-9+/=]+))?(?=\n\[|\n[^\n|]*Delivery(?: \([^)]+\))?\||\npay:|\nnotes:|\ninstallments:|\nINTERNAL|\Z)",
+        r"\[([^\]]+)\](.*?)\|([^|\n]+)\|qty:(\d+)\|\$(-?[0-9.,]+)(?:\|disc:([0-9.]+)%?)?\|tot:\$(-?[0-9.,]+)(?:\|del:(.*?))?(?:\n\s*Photo-base64:\s*(data:image\/[a-zA-Z]+;base64,[A-Za-z0-9+/=]+))?(?=\n\[|\n[^\n|]*Delivery(?: \([^)]+\))?\||\npay:|\nnotes:|\ninstallments:|\nINTERNAL|\Z)",
         re.S,
     )
 
@@ -115,7 +115,7 @@ def parse_summary(summary_text: str) -> dict:
         items.append({
             "no": no.strip(),
             "description": " ".join(desc.strip().split()).replace('⁄', '|'),
-            "delivery": " ".join(delivery.strip().split()).replace('⁄', '|'),
+            "delivery": " ".join((delivery or "").strip().split()).replace('⁄', '|'),
             "qty": int(qty),
             "unit": unit.strip(),
             "unit_price": _clean_currency(unit_price),
