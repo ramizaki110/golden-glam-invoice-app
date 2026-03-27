@@ -786,6 +786,56 @@ def draw_invoice(inv, output_path):
     elements.append(totals_wrap)
     elements.append(Spacer(1, 12))
 
+    # ── Payment plan (installments) ───────────────────────────────────────────
+    installments = inv.get("installments", [])
+    if installments and inv.get("payment_terms") == "installments":
+        split_type = inv.get("installment_split_type", "amount")
+        # Calculate amounts, force last installment = total - sum(others)
+        # so the payment plan total ALWAYS exactly matches the invoice total
+        amts = []
+        for inst in installments:
+            val = float(inst.get("val", 0) or 0)
+            if split_type == "pct":
+                amts.append(round(total * (val / 100.0), 2))
+            else:
+                amts.append(round(val, 2))
+        if amts:
+            amts[-1] = round(total - sum(amts[:-1]), 2)  # exact match, no rounding error
+
+        # Build rows: header + each installment + exact total
+        plan_rows = [["Payment Terms", "", ""]]
+        for i, (inst, amt) in enumerate(zip(installments, amts)):
+            label = f"{i+1}{'st' if i==0 else 'nd' if i==1 else 'rd' if i==2 else 'th'} Installment"
+            plan_rows.append([label, inst.get("date", ""), usd(amt)])
+        plan_rows.append(["", "", usd(total)])  # always exactly the invoice total
+
+        plan_tbl = Table(plan_rows, colWidths=[1.4*inch, 1.1*inch, 0.85*inch])
+        plan_style = [
+            ("FONTNAME",   (0,0), (-1,0),   "Helvetica-Bold"),
+            ("FONTNAME",   (0,1), (-1,-2),  "Helvetica"),
+            ("FONTNAME",   (0,-1),(-1,-1),  "Helvetica-Bold"),
+            ("FONTSIZE",   (0,0), (-1,-1),  8),
+            ("ALIGN",      (1,0), (1,-1),   "CENTER"),
+            ("ALIGN",      (2,0), (2,-1),   "RIGHT"),
+            ("TOPPADDING", (0,0), (-1,-1),  3),
+            ("BOTTOMPADDING",(0,0),(-1,-1), 3),
+            ("LINEABOVE",  (0,0), (-1,0),   0.6, colors.HexColor("#231f1e")),
+            ("LINEBELOW",  (0,-2),(-1,-2),  0.6, colors.HexColor("#d8d5d2")),
+            ("LINEBELOW",  (0,-1),(-1,-1),  0.6, colors.HexColor("#231f1e")),
+            ("SPAN",       (0,0), (1,0)),
+        ]
+        plan_tbl.setStyle(TableStyle(plan_style))
+
+        plan_wrap = Table([["", plan_tbl]],
+                          colWidths=[CONTENT_WIDTH - 3.35*inch, 3.35*inch])
+        plan_wrap.setStyle(TableStyle([
+            ("LEFTPADDING",  (0,0), (-1,-1), 0),
+            ("RIGHTPADDING", (0,0), (-1,-1), 0),
+            ("VALIGN",       (0,0), (-1,-1), "TOP"),
+        ]))
+        elements.append(plan_wrap)
+        elements.append(Spacer(1, 10))
+
     pay_map = {
         "standard": (
             f"Payment is via check, bank transfer, or credit card. Please note that credit card payments incur a 3% processing fee. "
