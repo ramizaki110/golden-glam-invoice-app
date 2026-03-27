@@ -190,7 +190,7 @@
       <div class="field"><label>Delivery charge ($)</label><input id="delivery_charge" type="number" value="0" min="0" oninput="recalc()"></div>
       <div class="field"><label>Sales tax rate (%)</label><input id="tax_rate" type="number" value="8.0" step="0.1" oninput="recalc()"></div>
       <div class="field"><label>Payment terms</label>
-        <select id="payment_terms">
+        <select id="payment_terms" onchange="toggleInstallments()">
           <option value="standard">Standard (check/bank/card)</option>
           <option value="advance">Paid in advance</option>
           <option value="installments">Installments</option>
@@ -209,6 +209,22 @@
       <div class="ptitle">🔒 Internal profit summary</div>
       <div id="profit-rows"></div>
     </div>
+  </div>
+
+  <!-- Installment plan -->
+  <div class="card" id="installment-card" style="display:none">
+    <div class="card-title">💳 Payment plan
+      <span style="font-size:11px;font-weight:400;color:var(--mid);margin-left:8px">up to 5 installments</span>
+      <select id="installment_split_type" style="font-size:12px;padding:3px 8px;width:auto;margin-left:auto" onchange="recalcInstallments()">
+        <option value="amount">Split by amount ($)</option>
+        <option value="pct">Split by percentage (%)</option>
+      </select>
+    </div>
+    <div id="installment-rows"></div>
+    <div style="margin-top:8px;display:flex;gap:8px">
+      <button class="btn btn-sm" onclick="addInstallment()" id="btn-add-installment">+ Add installment</button>
+    </div>
+    <div id="installment-validation" style="font-size:12px;color:var(--danger);margin-top:6px;display:none"></div>
   </div>
 
   <!-- Notes -->
@@ -828,6 +844,19 @@ async function buildSummary(){
   const tax=(sub+delChg)*taxRate/100;
   const tot=sub+delChg+tax;
   const payText={standard:'via check, bank transfer, or credit card (3% fee for card)',advance:'paid in advance',installments:'in installments'}[payTerms]||'';
+  // Collect installment data if applicable
+  let installmentData = '';
+  if(payTerms === 'installments'){
+    const rows = document.querySelectorAll('.installment-row');
+    const splitType = document.getElementById('installment_split_type').value;
+    const parts = [];
+    rows.forEach((row, idx) => {
+      const date = row.querySelector('.inst-date').value;
+      const val  = row.querySelector('.inst-val').value;
+      if(date && val) parts.push(`${idx+1}|${date}|${val}|${splitType}`);
+    });
+    if(parts.length) installmentData = '\ninstallments:' + parts.join(';');
+  }
 
   // (2) Uppercase output filename
   const clientUpper = cName.toUpperCase().replace(/\s+/g,'_');
@@ -841,7 +870,7 @@ file:${outFilename}
 ITEMS (fmt: [itemNo]desc|type|qty:N|$unitPrice|disc:N%|tot:$N|del:text|Photo-base64:...)
 ${lineTexts.join('\n')}
 ${delType?delType+'|':''}sub:$${sub.toFixed(2)}|del:$${delChg.toFixed(2)}|tax(${taxRate}%):$${tax.toFixed(2)}|total:$${tot.toFixed(2)}
-pay:${payText}|ref:${invNum}|client:${cNo}${notes?'\nnotes:'+notes:''}`;
+pay:${payText}|ref:${invNum}|client:${cNo}${notes?'\nnotes:'+notes:''}${installmentData}`;
 
   if(internalLines.length){
     out+=`\nINTERNAL\n${internalLines.map(l=>l.replace(/^\s+•\s+/,'')).join('\n')}`;
@@ -1109,6 +1138,12 @@ function captureCurrentInvoice(){
     tax_rate:       document.getElementById('tax_rate').value,
     payment_terms:  document.getElementById('payment_terms').value,
     inv_notes:      document.getElementById('inv_notes').value,
+    payment_terms:  document.getElementById('payment_terms').value,
+    installment_split_type: document.getElementById('installment_split_type')?.value||'amount',
+    installments:   (()=>{
+      const rows = document.querySelectorAll('.installment-row');
+      return Array.from(rows).map(r=>({date:r.querySelector('.inst-date').value,val:r.querySelector('.inst-val').value}));
+    })(),
     savedAt:        new Date().toISOString(),
     lineItems: items.map(({id}) => ({
       no:        document.getElementById('i'+id+'_no')?.value||'',
@@ -1183,6 +1218,23 @@ function loadInvoice(idx){
   });
   refreshClientDropdown();
   recalc();
+  // Restore installments
+  document.getElementById('payment_terms').value = inv.payment_terms||'standard';
+  toggleInstallments();
+  if(inv.payment_terms === 'installments' && inv.installments){
+    // Clear auto-added first installment
+    document.getElementById('installment-rows').innerHTML='';
+    installmentCount=0;
+    if(inv.installment_split_type)
+      document.getElementById('installment_split_type').value = inv.installment_split_type;
+    inv.installments.forEach(inst => {
+      addInstallment();
+      const rows = document.querySelectorAll('.installment-row');
+      const last = rows[rows.length-1];
+      last.querySelector('.inst-date').value = inst.date||'';
+      last.querySelector('.inst-val').value = inst.val||'';
+    });
+  }
   // Navigate to invoice tab
   showTab('invoice', document.querySelector('.nav-btn'));
 }
@@ -1218,6 +1270,79 @@ function renderInvoiceLibrary(){
       </div>
     </div>`;
   }).join('');
+}
+
+
+// ── INSTALLMENT PAYMENT PLAN ───────────────────────────────────────────────────
+let installmentCount = 0;
+const MAX_INSTALLMENTS = 5;
+
+function toggleInstallments(){
+  const val = document.getElementById('payment_terms').value;
+  const card = document.getElementById('installment-card');
+  card.style.display = val === 'installments' ? '' : 'none';
+  if(val === 'installments' && installmentCount === 0) addInstallment();
+}
+
+function addInstallment(){
+  if(installmentCount >= MAX_INSTALLMENTS){
+    alert('Maximum 5 installments allowed.'); return;
+  }
+  installmentCount++;
+  const container = document.getElementById('installment-rows');
+  const splitType = document.getElementById('installment_split_type').value;
+  const div = document.createElement('div');
+  div.className = 'installment-row';
+  div.style.cssText = 'display:grid;grid-template-columns:1.5rem 1fr 1fr auto;gap:8px;align-items:center;margin-bottom:8px';
+  div.dataset.id = installmentCount;
+  div.innerHTML = `
+    <span style="font-size:11px;font-weight:700;color:var(--mid)">${installmentCount}</span>
+    <div class="field" style="margin:0">
+      <input type="date" class="inst-date" placeholder="Date" oninput="validateInstallments()">
+    </div>
+    <div class="field" style="margin:0">
+      <input type="number" class="inst-val" placeholder="${splitType==='pct'?'e.g. 50 (%)':'e.g. 500 ($)'}" step="0.01" min="0" oninput="validateInstallments()">
+    </div>
+    <button class="btn btn-xs btn-danger" onclick="removeInstallment(this)" style="height:30px">✕</button>`;
+  container.appendChild(div);
+  // Show/hide add button
+  document.getElementById('btn-add-installment').style.display = installmentCount >= MAX_INSTALLMENTS ? 'none' : '';
+  validateInstallments();
+}
+
+function removeInstallment(btn){
+  btn.closest('.installment-row').remove();
+  installmentCount--;
+  // Renumber
+  document.querySelectorAll('.installment-row').forEach((r,i) => {
+    r.querySelector('span').textContent = i+1;
+  });
+  document.getElementById('btn-add-installment').style.display = installmentCount >= MAX_INSTALLMENTS ? 'none' : '';
+  validateInstallments();
+}
+
+function recalcInstallments(){
+  const splitType = document.getElementById('installment_split_type').value;
+  document.querySelectorAll('.installment-row .inst-val').forEach(inp => {
+    inp.placeholder = splitType === 'pct' ? 'e.g. 50 (%)' : 'e.g. 500 ($)';
+  });
+  validateInstallments();
+}
+
+function validateInstallments(){
+  const splitType = document.getElementById('installment_split_type').value;
+  const vals = Array.from(document.querySelectorAll('.installment-row .inst-val'))
+                    .map(i => parseFloat(i.value)||0);
+  const total = vals.reduce((a,b)=>a+b, 0);
+  const validEl = document.getElementById('installment-validation');
+  if(splitType === 'pct'){
+    if(Math.abs(total - 100) > 0.01 && vals.some(v=>v>0)){
+      validEl.textContent = `Percentages total ${total.toFixed(1)}% — must equal 100%`;
+      validEl.style.display = '';
+    } else { validEl.style.display = 'none'; }
+  } else {
+    validEl.style.display = 'none';
+  }
 }
 
 // ── INIT ───────────────────────────────────────────────────────────────────────
