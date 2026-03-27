@@ -71,6 +71,18 @@ def parse_summary(summary_text: str) -> dict:
     if m:
         notes = m.group(1).strip()
 
+    # Parse installments
+    installments = []
+    installment_split_type = "amount"
+    m_inst = re.search(r"\ninstallments:(.+?)(?:\nINTERNAL|\nITEMS|\Z)", summary_text, re.S)
+    if m_inst:
+        for part in m_inst.group(1).strip().split(";"):
+            seg = part.strip().split("|")
+            if len(seg) >= 3:
+                installments.append({"date": seg[1], "val": seg[2]})
+                if len(seg) >= 4:
+                    installment_split_type = seg[3]
+
     parts = summary_text.split("ITEMS", 1)
     if len(parts) < 2:
         raise ValueError("Could not find invoice items in summary.")
@@ -176,6 +188,8 @@ def parse_summary(summary_text: str) -> dict:
         "tax_rate": tax_rate,
         "payment_terms": payment_terms,
         "notes": notes,
+        "installments": installments,
+        "installment_split_type": installment_split_type,
         "items": items,
         "base_filename": base_filename,
     }
