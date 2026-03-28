@@ -159,7 +159,7 @@ def parse_summary(summary_text: str) -> dict:
         if m:
             cost_disc = float(m.group(1))
 
-        m = re.search(r"cost:\s*([0-9.]+)", line)
+        m = re.search(r"(?<![a-z_])cost:\s*([0-9.]+)", line)
         if m:
             cost = float(m.group(1))
 
