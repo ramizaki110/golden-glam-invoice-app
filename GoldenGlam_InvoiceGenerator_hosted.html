@@ -129,6 +129,8 @@
   <button class="nav-btn" onclick="showTab('clients',this)">👤 Client Book</button>
   <button class="nav-btn" onclick="showTab('items',this)">📦 Item Library</button>
   <button class="nav-btn" onclick="showTab('vendors',this)">🏭 Vendor Book</button>
+  <div class="nav-section">Tools</div>
+  <button class="nav-btn" onclick="showTab('pricing',this)">🔍 Competitor Pricing</button>
   <div class="nav-section">Export</div>
   <button class="nav-btn" onclick="showTab('export',this)">📄 Summary & Export</button>
   <div class="nav-section" style="margin-top:auto">Sync</div>
@@ -342,6 +344,104 @@
       <div class="field"></div>
     </div>
     <button class="btn btn-primary btn-sm" onclick="saveLibItem()" style="margin-top:8px">Save to library</button>
+  </div>
+</div>
+
+
+<!-- ════ COMPETITOR PRICING TAB ════ -->
+<div id="tab-pricing" class="tab-panel">
+  <div class="page-title">🔍 Competitor Pricing</div>
+  <div class="page-sub">Paste a product photo or enter a product name/SKU to find competitor prices across US retailers.</div>
+
+  <div class="card">
+    <div class="card-title">Product to search</div>
+
+    <!-- Image drop / paste zone -->
+    <div id="pricing-drop-zone" style="border:2px dashed var(--border);border-radius:8px;padding:1.5rem;text-align:center;cursor:pointer;margin-bottom:1rem;transition:border-color .2s;background:#fdfcfb;position:relative"
+         onclick="document.getElementById('pricing-img-input').click()"
+         ondragover="event.preventDefault();this.style.borderColor='var(--gold)'"
+         ondragleave="this.style.borderColor='var(--border)'"
+         ondrop="handlePricingDrop(event)">
+      <div id="pricing-drop-label" style="color:var(--mid);font-size:13px">
+        📷 <strong>Paste image</strong> (Ctrl+V) or <strong>drag & drop</strong> or <strong>click to upload</strong>
+        <br><span style="font-size:11px">Supports photos, screenshots, product images</span>
+      </div>
+      <img id="pricing-img-preview" style="display:none;max-height:160px;max-width:100%;border-radius:6px;margin-top:8px" />
+      <button id="pricing-img-clear" onclick="event.stopPropagation();clearPricingImage()" style="display:none;position:absolute;top:8px;right:8px;padding:2px 8px;font-size:11px" class="btn btn-danger">✕ Clear</button>
+      <input type="file" id="pricing-img-input" accept="image/*" style="display:none" onchange="handlePricingFile(this.files[0])">
+    </div>
+
+    <div style="text-align:center;color:var(--mid);font-size:12px;margin:-4px 0 12px">— or type product details —</div>
+
+    <div class="grid2">
+      <div class="field">
+        <label>Product name / description</label>
+        <input id="pricing-product" placeholder="e.g. Uttermost Flecher Drink Stand Travertine Brass 42H">
+      </div>
+      <div class="field">
+        <label>SKU / item number <span style="font-size:10px;font-weight:400;color:var(--mid)">(optional)</span></label>
+        <input id="pricing-sku" placeholder="e.g. 25159">
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-top:4px">
+      <div class="field">
+        <label>Delivery ZIP code <span style="font-size:10px;font-weight:400;color:var(--mid)">(for shipping estimates)</span></label>
+        <input id="pricing-zip" value="30338" placeholder="e.g. 30338">
+      </div>
+      <div class="field" style="display:flex;align-items:flex-end">
+        <button class="btn btn-gold" style="width:100%;font-size:13px;padding:9px" onclick="runPricingSearch()">🔍 Search competitor prices</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div id="pricing-results" style="display:none">
+    <!-- Identified product -->
+    <div id="pricing-identified" class="card" style="display:none">
+      <div class="card-title">🤖 Product identified from image</div>
+      <div id="pricing-identified-text" style="font-size:13px;color:var(--dark)"></div>
+    </div>
+
+    <!-- Price summary cards -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:1rem">
+      <div class="card" style="text-align:center;margin:0">
+        <div style="font-size:11px;font-weight:600;color:var(--mid);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Floor Price</div>
+        <div id="pricing-floor" style="font-size:26px;font-weight:700;color:#2d6a4f">—</div>
+        <div style="font-size:11px;color:var(--mid)">Lowest found</div>
+      </div>
+      <div class="card" style="text-align:center;margin:0;border:2px solid var(--gold)">
+        <div style="font-size:11px;font-weight:600;color:var(--gold);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Your Price</div>
+        <div id="pricing-suggested" style="font-size:26px;font-weight:700;color:var(--gold)">—</div>
+        <div style="font-size:11px;color:var(--mid)">Suggested retail</div>
+      </div>
+      <div class="card" style="text-align:center;margin:0">
+        <div style="font-size:11px;font-weight:600;color:var(--mid);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Ceiling Price</div>
+        <div id="pricing-ceiling" style="font-size:26px;font-weight:700;color:#6b4c3b">—</div>
+        <div style="font-size:11px;color:var(--mid)">Highest found</div>
+      </div>
+    </div>
+
+    <!-- Competitor table -->
+    <div class="card">
+      <div class="card-title" id="pricing-table-title">Competitor prices</div>
+      <div id="pricing-table-body"></div>
+    </div>
+
+    <!-- Query used -->
+    <div id="pricing-query-info" style="font-size:11px;color:var(--mid);margin-top:4px;text-align:right"></div>
+  </div>
+
+  <!-- Loading -->
+  <div id="pricing-loading" style="display:none;text-align:center;padding:2rem">
+    <div style="font-size:32px;margin-bottom:8px">🔍</div>
+    <div style="font-size:14px;color:var(--mid)" id="pricing-loading-msg">Searching competitor prices...</div>
+  </div>
+
+  <!-- Error -->
+  <div id="pricing-error" style="display:none" class="card">
+    <div style="color:var(--danger);font-size:13px" id="pricing-error-msg"></div>
+    <div style="font-size:12px;color:var(--mid);margin-top:8px">Make sure <strong>GOOGLE_SEARCH_API_KEY</strong> and <strong>GOOGLE_SEARCH_CX</strong> are set in your Render environment variables.</div>
   </div>
 </div>
 
@@ -1254,6 +1354,161 @@ function applyLibVendorSel(){
   if(sel.value) document.getElementById('ni_vendor_name').value = sel.value;
 }
 
+
+
+// ── COMPETITOR PRICING ─────────────────────────────────────────────────────────
+let _pricingImageB64 = '';
+
+// Paste support (Ctrl+V anywhere on pricing tab)
+document.addEventListener('paste', (e) => {
+  const activeTab = document.querySelector('.tab-panel.active');
+  if(!activeTab || activeTab.id !== 'tab-pricing') return;
+  const items = e.clipboardData?.items;
+  if(!items) return;
+  for(const item of items){
+    if(item.type.startsWith('image/')){
+      const file = item.getAsFile();
+      if(file) handlePricingFile(file);
+      break;
+    }
+  }
+});
+
+function handlePricingDrop(e){
+  e.preventDefault();
+  document.getElementById('pricing-drop-zone').style.borderColor = 'var(--border)';
+  const file = e.dataTransfer.files[0];
+  if(file && file.type.startsWith('image/')) handlePricingFile(file);
+}
+
+function handlePricingFile(file){
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const dataUrl = e.target.result;
+    _pricingImageB64 = dataUrl.split(',')[1]; // strip data:image/...;base64,
+    const preview = document.getElementById('pricing-img-preview');
+    preview.src = dataUrl;
+    preview.style.display = 'block';
+    document.getElementById('pricing-drop-label').style.display = 'none';
+    document.getElementById('pricing-img-clear').style.display = 'block';
+    document.getElementById('pricing-drop-zone').style.borderColor = 'var(--gold)';
+  };
+  reader.readAsDataURL(file);
+}
+
+function clearPricingImage(){
+  _pricingImageB64 = '';
+  document.getElementById('pricing-img-preview').style.display = 'none';
+  document.getElementById('pricing-img-preview').src = '';
+  document.getElementById('pricing-drop-label').style.display = 'block';
+  document.getElementById('pricing-img-clear').style.display = 'none';
+  document.getElementById('pricing-drop-zone').style.borderColor = 'var(--border)';
+  document.getElementById('pricing-img-input').value = '';
+}
+
+function _fmt(n){ return n != null ? '$' + n.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}) : '—'; }
+
+async function runPricingSearch(){
+  const product = document.getElementById('pricing-product').value.trim();
+  const sku     = document.getElementById('pricing-sku').value.trim();
+  const zip     = document.getElementById('pricing-zip').value.trim() || '30338';
+
+  if(!_pricingImageB64 && !product && !sku){
+    alert('Please paste/upload a product image or enter a product name / SKU.');
+    return;
+  }
+
+  // Show loading
+  document.getElementById('pricing-results').style.display = 'none';
+  document.getElementById('pricing-error').style.display = 'none';
+  document.getElementById('pricing-loading').style.display = 'block';
+
+  const msgs = [
+    _pricingImageB64 ? '🤖 Identifying product from image...' : '🔍 Searching competitor prices...',
+    '📦 Scanning US retailers...',
+    '💰 Extracting prices...',
+    '📊 Calculating price range...'
+  ];
+  let mi = 0;
+  const msgEl = document.getElementById('pricing-loading-msg');
+  const interval = setInterval(() => { msgEl.textContent = msgs[Math.min(++mi, msgs.length-1)]; }, 2500);
+
+  try {
+    const res = await fetch('/api/price-check', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({image: _pricingImageB64, product, sku, zip})
+    });
+    const data = await res.json();
+    clearInterval(interval);
+    document.getElementById('pricing-loading').style.display = 'none';
+
+    if(!data.ok){
+      document.getElementById('pricing-error-msg').textContent = data.error || 'Search failed.';
+      document.getElementById('pricing-error').style.display = 'block';
+      return;
+    }
+
+    // Identified product
+    if(data.identified_product && _pricingImageB64){
+      document.getElementById('pricing-identified-text').textContent = data.identified_product;
+      document.getElementById('pricing-identified').style.display = 'block';
+    } else {
+      document.getElementById('pricing-identified').style.display = 'none';
+    }
+
+    // Summary
+    document.getElementById('pricing-floor').textContent     = _fmt(data.floor);
+    document.getElementById('pricing-ceiling').textContent   = _fmt(data.ceiling);
+    document.getElementById('pricing-suggested').textContent = _fmt(data.suggested);
+
+    // Table
+    const results = data.results || [];
+    const title = document.getElementById('pricing-table-title');
+    title.textContent = `Competitor prices — ${results.length} result${results.length!==1?'s':''} found`;
+
+    if(results.length === 0){
+      document.getElementById('pricing-table-body').innerHTML = '<div style="color:var(--mid);font-size:13px;padding:8px 0">No prices found. Try adding more detail to the product name, or check your Google Search API setup.</div>';
+    } else {
+      const sorted = [...results].sort((a,b) => (a.price||999999)-(b.price||999999));
+      document.getElementById('pricing-table-body').innerHTML = `
+        <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+          <thead>
+            <tr style="background:#f5f2ef">
+              <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--dark)">Retailer</th>
+              <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--dark)">Product</th>
+              <th style="padding:8px 10px;text-align:right;font-weight:600;color:var(--dark)">Price</th>
+              <th style="padding:8px 10px;text-align:center;font-weight:600;color:var(--dark)">Stock</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sorted.map((r,i) => `
+              <tr style="border-top:1px solid var(--border);background:${i%2===0?'#fff':'#fdfcfb'}">
+                <td style="padding:8px 10px;font-weight:600;color:var(--dark)">${r.retailer||'—'}</td>
+                <td style="padding:8px 10px;color:var(--dark)">
+                  <a href="${r.url||'#'}" target="_blank" style="color:var(--gold);text-decoration:none;font-weight:500" title="${r.url||''}">${(r.title||'View product').substring(0,60)}${(r.title||'').length>60?'…':''}</a>
+                </td>
+                <td style="padding:8px 10px;text-align:right;font-weight:700;font-size:14px;color:${r.price===data.floor?'#2d6a4f':r.price===data.ceiling?'#6b4c3b':'var(--dark)'}">${r.price?'$'+r.price.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}):'N/A'}</td>
+                <td style="padding:8px 10px;text-align:center">${r.in_stock===false?'<span style="color:#999;font-size:11px">Out of stock</span>':'<span style="color:#2d6a4f;font-size:11px">✓ Available</span>'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+    }
+
+    if(data.query_used){
+      document.getElementById('pricing-query-info').textContent = `Search query: "${data.query_used}"`;
+    }
+
+    document.getElementById('pricing-results').style.display = 'block';
+
+  } catch(err) {
+    clearInterval(interval);
+    document.getElementById('pricing-loading').style.display = 'none';
+    document.getElementById('pricing-error-msg').textContent = 'Request failed: ' + err.message;
+    document.getElementById('pricing-error').style.display = 'block';
+  }
+}
 
 // ── INVOICE LIBRARY ────────────────────────────────────────────────────────────
 function captureCurrentInvoice(){
