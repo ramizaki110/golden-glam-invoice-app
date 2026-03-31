@@ -850,7 +850,7 @@ def draw_invoice(inv, output_path):
     pay_line = (
         f"Payment is via check, bank transfer, or credit card. "
         f"Please note that credit card payments incur a 3% processing fee. "
-        f"<b>{bold_text}</b>"
+                f"<b>Terms of payment:</b> <b>{bold_text}</b>"
     )
     elements.append(Paragraph(pay_line, note_style))
     elements.append(Spacer(1, 6))
