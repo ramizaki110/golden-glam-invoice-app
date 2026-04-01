@@ -388,13 +388,18 @@ def _identify_from_image(image_b64: str, anthropic_key: str) -> dict:
     )
     with urllib.request.urlopen(req, timeout=20) as resp:
         raw = json.loads(resp.read())["content"][0]["text"].strip()
-        # Strip markdown fences if model adds them
+        # Strip markdown fences if model wraps in ```json
         raw = re.sub(r"^```[a-z]*\n?", "", raw).rstrip("`").strip()
-        parsed = json.loads(raw)
-        return {
-            "product_name": parsed.get("product_name", "").strip(),
-            "visual_terms": parsed.get("visual_terms", "").strip(),
-        }
+        try:
+            parsed = json.loads(raw)
+            return {
+                "product_name": parsed.get("product_name", "").strip(),
+                "visual_terms": parsed.get("visual_terms", "").strip(),
+            }
+        except json.JSONDecodeError:
+            # Haiku didn't return valid JSON — treat whole response as product name
+            print(f"[vision] JSON parse failed, raw='{raw}'")
+            return {"product_name": raw[:120], "visual_terms": ""}
 
 
 def _extract_prices(raw_results: list, seen_urls: set) -> list:
@@ -429,6 +434,14 @@ def _extract_prices(raw_results: list, seen_urls: set) -> list:
 
 @app.post("/api/price-check")
 def api_price_check():
+    try:
+        return _api_price_check_inner()
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": f"Server error: {str(e)}"}), 500
+
+def _api_price_check_inner():
     payload      = request.get_json(silent=True) or {}
     image_b64    = payload.get("image", "")
     product_text = payload.get("product", "").strip()
