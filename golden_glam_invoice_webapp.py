@@ -373,7 +373,7 @@ def api_price_check():
         return jsonify({"ok": False, "error": f"Google search failed: {e}"}), 500
 
     if not items:
-        return jsonify({"ok": True, "identified_product": identified, "results": [],
+        return jsonify({"ok": True, "identified_product": "", "results": [],
                         "floor": None, "ceiling": None, "suggested": None, "query_used": query})
 
     # ── Step 3: Extract prices from search snippets (regex, no Claude needed) ─
@@ -399,7 +399,7 @@ def api_price_check():
     # Suggested = 5% above average, rounded to nearest $5
     suggested = (round(avg_p * 1.05 / 5) * 5) if avg_p else None
 
-    return jsonify({"ok": True, "identified_product": identified, "results": results,
+    return jsonify({"ok": True, "identified_product": "", "results": results,
                     "floor": floor_p, "ceiling": ceiling_p, "suggested": suggested, "query_used": query})
 
 @app.get("/")

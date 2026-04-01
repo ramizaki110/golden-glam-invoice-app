@@ -364,10 +364,11 @@
          ondrop="handlePricingDrop(event)">
       <div id="pricing-drop-label" style="color:var(--mid);font-size:13px">
         📷 <strong>Paste image</strong> (Ctrl+V) or <strong>drag & drop</strong> or <strong>click to upload</strong>
-        <br><span style="font-size:11px">Supports photos, screenshots, product images</span>
+        <br><span style="font-size:11px">Also type the product name below — no AI identification needed, just Google search</span>
       </div>
       <img id="pricing-img-preview" style="display:none;max-height:160px;max-width:100%;border-radius:6px;margin-top:8px" />
       <button id="pricing-img-clear" onclick="event.stopPropagation();clearPricingImage()" style="display:none;position:absolute;top:8px;right:8px;padding:2px 8px;font-size:11px" class="btn btn-danger">✕ Clear</button>
+      <button id="pricing-lens-btn" onclick="event.stopPropagation();openGoogleLens()" style="display:none;position:absolute;top:8px;left:8px;padding:2px 10px;font-size:11px;background:#4285f4;color:#fff;border:none;border-radius:4px;cursor:pointer" title="Open in Google Lens to identify product">🔍 Google Lens</button>
       <input type="file" id="pricing-img-input" accept="image/*" style="display:none" onchange="handlePricingFile(this.files[0])">
     </div>
 
@@ -1386,23 +1387,46 @@ function handlePricingFile(file){
   const reader = new FileReader();
   reader.onload = (e) => {
     const dataUrl = e.target.result;
-    _pricingImageB64 = dataUrl.split(',')[1]; // strip data:image/...;base64,
+    _pricingImageB64 = dataUrl.split(',')[1];
     const preview = document.getElementById('pricing-img-preview');
     preview.src = dataUrl;
     preview.style.display = 'block';
     document.getElementById('pricing-drop-label').style.display = 'none';
     document.getElementById('pricing-img-clear').style.display = 'block';
     document.getElementById('pricing-drop-zone').style.borderColor = 'var(--gold)';
+    // Show Google Lens button
+    document.getElementById('pricing-lens-btn').style.display = 'inline-block';
+    // Store blob URL for Lens upload
+    window._pricingBlob = file;
   };
   reader.readAsDataURL(file);
 }
 
+function openGoogleLens(){
+  if(!window._pricingBlob) return;
+  // Create a form to submit image to Google Lens
+  const formData = new FormData();
+  formData.append('encoded_image', window._pricingBlob, 'product.jpg');
+  formData.append('image_content', '');
+  // Open Google Lens in new tab - user will see product matches
+  const url = 'https://lens.google.com/upload?ep=gsbubb&hl=en-US&re=df&st=' + Date.now();
+  const tab = window.open(url, '_blank');
+  // Use fetch to post the image  
+  fetch('https://lens.google.com/upload?ep=gsbubb&hl=en-US&re=df&st=' + Date.now(), {
+    method:'POST', body: formData, mode:'no-cors'
+  }).catch(()=>{});
+  // Just open lens directly  
+  if(!tab) alert('Please allow popups to open Google Lens');
+}
+
 function clearPricingImage(){
   _pricingImageB64 = '';
+  window._pricingBlob = null;
   document.getElementById('pricing-img-preview').style.display = 'none';
   document.getElementById('pricing-img-preview').src = '';
   document.getElementById('pricing-drop-label').style.display = 'block';
   document.getElementById('pricing-img-clear').style.display = 'none';
+  document.getElementById('pricing-lens-btn').style.display = 'none';
   document.getElementById('pricing-drop-zone').style.borderColor = 'var(--border)';
   document.getElementById('pricing-img-input').value = '';
 }
