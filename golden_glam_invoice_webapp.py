@@ -336,67 +336,68 @@ def api_delete_photo(key):
 @app.post("/api/price-check")
 def api_price_check():
     import urllib.parse as urlparse
+    import re
 
-    payload  = request.get_json(silent=True) or {}
+    payload      = request.get_json(silent=True) or {}
     image_b64    = payload.get("image", "")
     product_text = payload.get("product", "").strip()
     sku          = payload.get("sku", "").strip()
-    zip_code     = payload.get("zip", "30338").strip()
 
-    GOOGLE_KEY   = os.environ.get("GOOGLE_SEARCH_API_KEY", "")
-    GOOGLE_CX    = os.environ.get("GOOGLE_SEARCH_CX", "")
-    if not GOOGLE_KEY or not GOOGLE_CX:
+    BRAVE_KEY = os.environ.get("BRAVE_API_KEY", "")
+    if not BRAVE_KEY:
         return jsonify({"ok": False,
-            "error": "Google Search API not configured. Add GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_CX to your Render environment variables. See setup guide in Notion."}), 503
+            "error": "Brave Search API not configured. Add BRAVE_API_KEY to your Render environment variables."}), 503
 
-    # ── Step 1: Build search query from text (no Claude needed) ─────────────────
+    # ── Step 1: Build search query ──────────────────────────────────────────────
     identified = product_text
     if not identified and not sku:
         if image_b64:
             return jsonify({"ok": False,
-                "error": "Please also type the product name or SKU in the fields below the image — this lets us search without any AI identification cost."}), 400
+                "error": "Please also type the product name or SKU in the fields below the image."}), 400
         return jsonify({"ok": False, "error": "Please provide a product name or SKU."}), 400
 
-    # ── Step 2: Google Custom Search ──────────────────────────────────────────
     parts = []
     if identified: parts.append(identified)
     if sku:        parts.append(sku)
     query = " ".join(parts) + " price"
 
+    # ── Step 2: Brave Web Search ────────────────────────────────────────────────
     try:
-        search_url = (f"https://www.googleapis.com/customsearch/v1"
-                      f"?key={GOOGLE_KEY}&cx={GOOGLE_CX}"
-                      f"&q={urlparse.quote(query)}&num=10&gl=us&cr=countryUS")
-        with urllib.request.urlopen(urllib.request.Request(search_url), timeout=12) as resp:
-            items = json.loads(resp.read()).get("items", [])
+        search_url = f"https://api.search.brave.com/res/v1/web/search?q={urlparse.quote(query)}&count=10&country=us"
+        req = urllib.request.Request(search_url, headers={
+            "X-Subscription-Token": BRAVE_KEY,
+            "Accept": "application/json",
+        })
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            brave_data = json.loads(resp.read())
+            web_results = brave_data.get("web", {}).get("results", [])
     except Exception as e:
-        return jsonify({"ok": False, "error": f"Google search failed: {e}"}), 500
+        return jsonify({"ok": False, "error": f"Brave search failed: {e}"}), 500
 
-    if not items:
+    if not web_results:
         return jsonify({"ok": True, "identified_product": "", "results": [],
                         "floor": None, "ceiling": None, "suggested": None, "query_used": query})
 
-    # ── Step 3: Extract prices from search snippets (regex, no Claude needed) ─
-    import re
+    # ── Step 3: Extract prices from search snippets ─────────────────────────────
     results = []
-    for it in items:
-        snippet = it.get("snippet", "") + " " + it.get("title", "")
+    for it in web_results:
+        snippet = it.get("description", "") + " " + it.get("title", "")
         prices = re.findall(r'\$([\d,]+(?:\.\d{2})?)', snippet)
         if prices:
             try:
                 price = float(prices[0].replace(",", ""))
-                domain = urlparse.urlparse(it["link"]).netloc.replace("www.", "")
+                url   = it.get("url", "")
+                domain = urlparse.urlparse(url).netloc.replace("www.", "")
                 results.append({"retailer": domain, "price": price,
-                                "url": it["link"], "title": it.get("title",""), "in_stock": True})
+                                 "url": url, "title": it.get("title", ""), "in_stock": True})
             except Exception:
                 pass
 
-    # ── Step 4: Compute price range ───────────────────────────────────────────
-    prices = [r["price"] for r in results if isinstance(r.get("price"), (int, float)) and r["price"] > 0]
+    # ── Step 4: Compute price range ─────────────────────────────────────────────
+    prices    = [r["price"] for r in results if isinstance(r.get("price"), (int, float)) and r["price"] > 0]
     floor_p   = round(min(prices), 2) if prices else None
     ceiling_p = round(max(prices), 2) if prices else None
     avg_p     = sum(prices) / len(prices) if prices else None
-    # Suggested = 5% above average, rounded to nearest $5
     suggested = (round(avg_p * 1.05 / 5) * 5) if avg_p else None
 
     return jsonify({"ok": True, "identified_product": "", "results": results,
