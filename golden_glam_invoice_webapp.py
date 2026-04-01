@@ -332,7 +332,107 @@ def api_delete_photo(key):
 
 
 
+
 # ── Competitor Pricing ─────────────────────────────────────────────────────────
+
+FURNITURE_RETAILERS = [
+    "wayfair.com", "westelm.com", "perigold.com", "potterybarn.com",
+    "crateandbarrel.com", "cb2.com", "rh.com", "restorationhardware.com",
+    "serenaandlily.com", "article.com", "worldmarket.com", "target.com",
+    "amazon.com", "homedepot.com", "lowes.com", "ikea.com",
+    "ballarddesigns.com", "arhaus.com", "roomandboard.com", "zgallerie.com",
+    "hayneedle.com", "overstock.com", "allmodern.com", "jossandmain.com",
+    "anthropologie.com", "burkedecor.com", "lumens.com", "ylighting.com",
+    "circafurniture.com", "furniturerow.com", "ethanallen.com",
+    "livingspaces.com", "pier1.com", "kohls.com", "walmart.com",
+    "bedbathandbeyond.com", "tuftandneedle.com", "castlery.com",
+]
+
+RETAILER_SITE_FILTER = (
+    "site:wayfair.com OR site:westelm.com OR site:perigold.com OR "
+    "site:potterybarn.com OR site:crateandbarrel.com OR site:rh.com OR "
+    "site:allmodern.com OR site:jossandmain.com OR site:arhaus.com OR "
+    "site:article.com OR site:serenaandlily.com OR site:cb2.com OR "
+    "site:roomandboard.com OR site:ballarddesigns.com OR site:zgallerie.com OR "
+    "site:livingspaces.com OR site:castlery.com OR site:ethanallen.com"
+)
+
+
+def _brave_search(query: str, brave_key: str, count: int = 10) -> list:
+    import urllib.parse as urlparse
+    search_url = (
+        f"https://api.search.brave.com/res/v1/web/search"
+        f"?q={urlparse.quote(query)}&count={count}&country=us"
+    )
+    req = urllib.request.Request(search_url, headers={
+        "X-Subscription-Token": brave_key,
+        "Accept": "application/json",
+    })
+    with urllib.request.urlopen(req, timeout=12) as resp:
+        return json.loads(resp.read()).get("web", {}).get("results", [])
+
+
+def _extract_visual_descriptors(image_b64: str, anthropic_key: str) -> str:
+    """Use Claude Haiku Vision (~$0.001/call) to extract visual search keywords.
+    Returns descriptors like 'woven rattan wicker accent chair natural brown outdoor'
+    so the same item is found across retailers regardless of their naming.
+    """
+    if "," in image_b64:
+        media_type_part, data = image_b64.split(",", 1)
+        media_type = media_type_part.split(":")[1].split(";")[0] if ":" in media_type_part else "image/jpeg"
+    else:
+        data = image_b64
+        media_type = "image/jpeg"
+
+    body = json.dumps({
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 60,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": media_type, "data": data}
+                },
+                {
+                    "type": "text",
+                    "text": (
+                        "Look at this furniture/home decor item. Return ONLY 6-10 search keywords "
+                        "describing it visually: material, construction, color/finish, shape, "
+                        "indoor/outdoor use, and furniture category. "
+                        "Example: woven rattan wicker occasional accent chair natural brown outdoor. "
+                        "No sentences, no punctuation — just space-separated keywords."
+                    )
+                }
+            ]
+        }]
+    }).encode()
+
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=body,
+        headers={
+            "x-api-key": anthropic_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+        method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        result = json.loads(resp.read())
+        return result["content"][0]["text"].strip()
+
+
+def _is_url_reachable(url: str) -> bool:
+    try:
+        req = urllib.request.Request(url, method="HEAD")
+        req.add_header("User-Agent", "Mozilla/5.0")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status < 400
+    except Exception:
+        return False
+
+
 @app.post("/api/price-check")
 def api_price_check():
     import urllib.parse as urlparse
@@ -343,65 +443,116 @@ def api_price_check():
     product_text = payload.get("product", "").strip()
     sku          = payload.get("sku", "").strip()
 
-    BRAVE_KEY = os.environ.get("BRAVE_API_KEY", "")
+    BRAVE_KEY     = os.environ.get("BRAVE_API_KEY", "")
+    ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+
     if not BRAVE_KEY:
         return jsonify({"ok": False,
-            "error": "Brave Search API not configured. Add BRAVE_API_KEY to your Render environment variables."}), 503
+            "error": "Brave Search API not configured. Add BRAVE_API_KEY to Render environment variables."}), 503
 
-    # ── Step 1: Build search query ──────────────────────────────────────────────
-    identified = product_text
-    if not identified and not sku:
-        if image_b64:
-            return jsonify({"ok": False,
-                "error": "Please also type the product name or SKU in the fields below the image."}), 400
-        return jsonify({"ok": False, "error": "Please provide a product name or SKU."}), 400
+    # ── Step 1: Extract visual descriptors from image (Haiku, ~$0.001/call) ───
+    visual_descriptors = ""
+    image_used = False
+    if image_b64 and ANTHROPIC_KEY:
+        try:
+            visual_descriptors = _extract_visual_descriptors(image_b64, ANTHROPIC_KEY)
+            image_used = True
+            print(f"[vision] descriptors: {visual_descriptors}")
+        except Exception as e:
+            print(f"[vision] failed: {e}")
 
-    parts = []
-    if identified: parts.append(identified)
-    if sku:        parts.append(sku)
-    query = " ".join(parts) + " price"
+    # ── Step 2: Build search base term ────────────────────────────────────────
+    # Priority: typed product name > visual descriptors > SKU alone
+    if product_text:
+        base_term = product_text
+        if visual_descriptors:
+            # Combine typed name with visual context for richer query
+            base_term = f"{product_text} {visual_descriptors}"
+    elif visual_descriptors:
+        base_term = visual_descriptors
+    elif sku:
+        base_term = sku
+    else:
+        return jsonify({"ok": False, "error": "Please provide a product name, SKU, or upload an image."}), 400
 
-    # ── Step 2: Brave Web Search ────────────────────────────────────────────────
-    try:
-        search_url = f"https://api.search.brave.com/res/v1/web/search?q={urlparse.quote(query)}&count=10&country=us"
-        req = urllib.request.Request(search_url, headers={
-            "X-Subscription-Token": BRAVE_KEY,
-            "Accept": "application/json",
-        })
-        with urllib.request.urlopen(req, timeout=12) as resp:
-            brave_data = json.loads(resp.read())
-            web_results = brave_data.get("web", {}).get("results", [])
-    except Exception as e:
-        return jsonify({"ok": False, "error": f"Brave search failed: {e}"}), 500
+    if sku and sku not in base_term:
+        base_term = f"{base_term} {sku}"
 
-    if not web_results:
-        return jsonify({"ok": True, "identified_product": "", "results": [],
-                        "floor": None, "ceiling": None, "suggested": None, "query_used": query})
+    # ── Step 3: Three targeted searches ──────────────────────────────────────
+    # Q1: General web (catches niche/smaller retailers)
+    q_general  = f"{base_term} price buy"
+    # Q2: Major furniture retailers specifically
+    q_retailers = f"{base_term} price ({RETAILER_SITE_FILTER})"
+    # Q3: SKU exact match if provided
+    q_sku = f'"{sku}" furniture price' if sku else None
 
-    # ── Step 3: Extract prices from search snippets ─────────────────────────────
+    raw_results = []
+    for q in filter(None, [q_general, q_retailers, q_sku]):
+        try:
+            raw_results += _brave_search(q, BRAVE_KEY, count=10)
+        except Exception as e:
+            print(f"[brave] search failed for query '{q}': {e}")
+
+    if not raw_results:
+        return jsonify({"ok": True, "identified_product": base_term, "results": [],
+                        "floor": None, "ceiling": None, "suggested": None,
+                        "query_used": q_general, "image_used": image_used})
+
+    # ── Step 4: Deduplicate, extract prices, validate URLs ────────────────────
+    seen_urls = set()
     results = []
-    for it in web_results:
-        snippet = it.get("description", "") + " " + it.get("title", "")
-        prices = re.findall(r'\$([\d,]+(?:\.\d{2})?)', snippet)
-        if prices:
-            try:
-                price = float(prices[0].replace(",", ""))
-                url   = it.get("url", "")
-                domain = urlparse.urlparse(url).netloc.replace("www.", "")
-                results.append({"retailer": domain, "price": price,
-                                 "url": url, "title": it.get("title", ""), "in_stock": True})
-            except Exception:
-                pass
+    for it in raw_results:
+        url = it.get("url", "")
+        if not url or url in seen_urls:
+            continue
+        seen_urls.add(url)
 
-    # ── Step 4: Compute price range ─────────────────────────────────────────────
-    prices    = [r["price"] for r in results if isinstance(r.get("price"), (int, float)) and r["price"] > 0]
+        snippet = it.get("description", "") + " " + it.get("title", "")
+        prices  = re.findall(r'\$([\d,]+(?:\.\d{2})?)', snippet)
+        if not prices:
+            continue
+
+        try:
+            price = float(prices[0].replace(",", ""))
+            if price <= 0 or price > 100000:
+                continue
+            domain = urlparse.urlparse(url).netloc.replace("www.", "")
+            is_reputable = any(r in domain for r in FURNITURE_RETAILERS)
+            reachable    = _is_url_reachable(url)
+
+            results.append({
+                "retailer":  domain,
+                "price":     price,
+                "url":       url,
+                "title":     it.get("title", ""),
+                "in_stock":  True,
+                "reachable": reachable,
+                "reputable": is_reputable,
+            })
+        except Exception:
+            pass
+
+    # Sort: reputable retailers first, then by price ascending
+    results.sort(key=lambda r: (not r["reputable"], r["price"]))
+
+    # ── Step 5: Price range ───────────────────────────────────────────────────
+    prices    = [r["price"] for r in results]
     floor_p   = round(min(prices), 2) if prices else None
     ceiling_p = round(max(prices), 2) if prices else None
     avg_p     = sum(prices) / len(prices) if prices else None
     suggested = (round(avg_p * 1.05 / 5) * 5) if avg_p else None
 
-    return jsonify({"ok": True, "identified_product": "", "results": results,
-                    "floor": floor_p, "ceiling": ceiling_p, "suggested": suggested, "query_used": query})
+    return jsonify({
+        "ok":                True,
+        "identified_product": base_term,
+        "image_used":        image_used,
+        "visual_descriptors": visual_descriptors,
+        "results":           results,
+        "floor":             floor_p,
+        "ceiling":           ceiling_p,
+        "suggested":         suggested,
+        "query_used":        q_general,
+    })
 
 @app.get("/")
 def home():
