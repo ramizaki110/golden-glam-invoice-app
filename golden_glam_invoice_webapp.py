@@ -344,8 +344,7 @@ FURNITURE_RETAILERS = [
     "hayneedle.com", "overstock.com", "allmodern.com", "jossandmain.com",
     "anthropologie.com", "burkedecor.com", "lumens.com", "ylighting.com",
     "circafurniture.com", "furniturerow.com", "ethanallen.com",
-    "livingspaces.com", "pier1.com", "kohls.com", "walmart.com",
-    "bedbathandbeyond.com", "tuftandneedle.com", "castlery.com",
+    "livingspaces.com", "castlery.com", "tuftandneedle.com",
 ]
 
 RETAILER_SITE_FILTER = (
@@ -373,10 +372,7 @@ def _brave_search(query: str, brave_key: str, count: int = 10) -> list:
 
 
 def _extract_visual_descriptors(image_b64: str, anthropic_key: str) -> str:
-    """Use Claude Haiku Vision (~$0.001/call) to extract visual search keywords.
-    Returns descriptors like 'woven rattan wicker accent chair natural brown outdoor'
-    so the same item is found across retailers regardless of their naming.
-    """
+    """Use Claude Haiku Vision (~$0.001/call) to extract visual search keywords."""
     if "," in image_b64:
         media_type_part, data = image_b64.split(",", 1)
         media_type = media_type_part.split(":")[1].split(";")[0] if ":" in media_type_part else "image/jpeg"
@@ -386,7 +382,7 @@ def _extract_visual_descriptors(image_b64: str, anthropic_key: str) -> str:
 
     body = json.dumps({
         "model": "claude-haiku-4-5-20251001",
-        "max_tokens": 60,
+        "max_tokens": 80,
         "messages": [{
             "role": "user",
             "content": [
@@ -397,9 +393,9 @@ def _extract_visual_descriptors(image_b64: str, anthropic_key: str) -> str:
                 {
                     "type": "text",
                     "text": (
-                        "Look at this furniture/home decor item. Return ONLY 6-10 search keywords "
-                        "describing it visually: material, construction, color/finish, shape, "
-                        "indoor/outdoor use, and furniture category. "
+                        "Look at this furniture or home decor item. "
+                        "Return ONLY 6-10 search keywords describing it visually: "
+                        "material, construction, color/finish, shape, indoor/outdoor, furniture category. "
                         "Example: woven rattan wicker occasional accent chair natural brown outdoor. "
                         "No sentences, no punctuation — just space-separated keywords."
                     )
@@ -423,16 +419,6 @@ def _extract_visual_descriptors(image_b64: str, anthropic_key: str) -> str:
         return result["content"][0]["text"].strip()
 
 
-def _is_url_reachable(url: str) -> bool:
-    try:
-        req = urllib.request.Request(url, method="HEAD")
-        req.add_header("User-Agent", "Mozilla/5.0")
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            return resp.status < 400
-    except Exception:
-        return False
-
-
 @app.post("/api/price-check")
 def api_price_check():
     import urllib.parse as urlparse
@@ -450,7 +436,7 @@ def api_price_check():
         return jsonify({"ok": False,
             "error": "Brave Search API not configured. Add BRAVE_API_KEY to Render environment variables."}), 503
 
-    # ── Step 1: Extract visual descriptors from image (Haiku, ~$0.001/call) ───
+    # ── Step 1: Extract visual descriptors from image via Haiku ───────────────
     visual_descriptors = ""
     image_used = False
     if image_b64 and ANTHROPIC_KEY:
@@ -460,47 +446,45 @@ def api_price_check():
             print(f"[vision] descriptors: {visual_descriptors}")
         except Exception as e:
             print(f"[vision] failed: {e}")
+            # Fallback: use generic furniture term so search still runs
+            visual_descriptors = "furniture home decor"
+            image_used = True
 
-    # ── Step 2: Build search base term ────────────────────────────────────────
-    # Priority: typed product name > visual descriptors > SKU alone
+    # ── Step 2: Build base search term ────────────────────────────────────────
     if product_text:
-        base_term = product_text
-        if visual_descriptors:
-            # Combine typed name with visual context for richer query
-            base_term = f"{product_text} {visual_descriptors}"
+        # Typed name + visual context for richer matching
+        base_term = f"{product_text} {visual_descriptors}".strip() if visual_descriptors else product_text
     elif visual_descriptors:
         base_term = visual_descriptors
     elif sku:
         base_term = sku
     else:
-        return jsonify({"ok": False, "error": "Please provide a product name, SKU, or upload an image."}), 400
+        return jsonify({"ok": False,
+            "error": "Please provide a product name, SKU, or upload an image."}), 400
 
     if sku and sku not in base_term:
         base_term = f"{base_term} {sku}"
 
-    # ── Step 3: Three targeted searches ──────────────────────────────────────
-    # Q1: General web (catches niche/smaller retailers)
-    q_general  = f"{base_term} price buy"
-    # Q2: Major furniture retailers specifically
+    # ── Step 3: Run up to 3 targeted Brave searches ───────────────────────────
+    q_general   = f"{base_term} price buy"
     q_retailers = f"{base_term} price ({RETAILER_SITE_FILTER})"
-    # Q3: SKU exact match if provided
-    q_sku = f'"{sku}" furniture price' if sku else None
+    q_sku       = f'"{sku}" price furniture' if sku else None
 
     raw_results = []
     for q in filter(None, [q_general, q_retailers, q_sku]):
         try:
             raw_results += _brave_search(q, BRAVE_KEY, count=10)
         except Exception as e:
-            print(f"[brave] search failed for query '{q}': {e}")
+            print(f"[brave] failed: {e}")
 
     if not raw_results:
         return jsonify({"ok": True, "identified_product": base_term, "results": [],
                         "floor": None, "ceiling": None, "suggested": None,
                         "query_used": q_general, "image_used": image_used})
 
-    # ── Step 4: Deduplicate, extract prices, validate URLs ────────────────────
+    # ── Step 4: Deduplicate and extract prices (no URL validation — too slow) ──
     seen_urls = set()
-    results = []
+    results   = []
     for it in raw_results:
         url = it.get("url", "")
         if not url or url in seen_urls:
@@ -516,23 +500,20 @@ def api_price_check():
             price = float(prices[0].replace(",", ""))
             if price <= 0 or price > 100000:
                 continue
-            domain = urlparse.urlparse(url).netloc.replace("www.", "")
+            domain      = urlparse.urlparse(url).netloc.replace("www.", "")
             is_reputable = any(r in domain for r in FURNITURE_RETAILERS)
-            reachable    = _is_url_reachable(url)
-
             results.append({
                 "retailer":  domain,
                 "price":     price,
                 "url":       url,
                 "title":     it.get("title", ""),
                 "in_stock":  True,
-                "reachable": reachable,
                 "reputable": is_reputable,
             })
         except Exception:
             pass
 
-    # Sort: reputable retailers first, then by price ascending
+    # Reputable retailers first, then lowest price
     results.sort(key=lambda r: (not r["reputable"], r["price"]))
 
     # ── Step 5: Price range ───────────────────────────────────────────────────
@@ -543,15 +524,15 @@ def api_price_check():
     suggested = (round(avg_p * 1.05 / 5) * 5) if avg_p else None
 
     return jsonify({
-        "ok":                True,
+        "ok":                 True,
         "identified_product": base_term,
-        "image_used":        image_used,
+        "image_used":         image_used,
         "visual_descriptors": visual_descriptors,
-        "results":           results,
-        "floor":             floor_p,
-        "ceiling":           ceiling_p,
-        "suggested":         suggested,
-        "query_used":        q_general,
+        "results":            results,
+        "floor":              floor_p,
+        "ceiling":            ceiling_p,
+        "suggested":          suggested,
+        "query_used":         q_general,
     })
 
 @app.get("/")

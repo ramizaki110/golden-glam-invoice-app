@@ -442,7 +442,7 @@
   <!-- Error -->
   <div id="pricing-error" style="display:none" class="card">
     <div style="color:var(--danger);font-size:13px" id="pricing-error-msg"></div>
-    <div style="font-size:12px;color:var(--mid);margin-top:8px">Make sure <strong>GOOGLE_SEARCH_API_KEY</strong> and <strong>GOOGLE_SEARCH_CX</strong> are set in your Render environment variables.</div>
+    
   </div>
 </div>
 
@@ -1493,9 +1493,9 @@ async function runPricingSearch(){
     title.textContent = `Competitor prices — ${results.length} result${results.length!==1?'s':''} found`;
 
     if(results.length === 0){
-      document.getElementById('pricing-table-body').innerHTML = '<div style="color:var(--mid);font-size:13px;padding:8px 0">No prices found. Try adding more detail to the product name, or check your Google Search API setup.</div>';
+      document.getElementById('pricing-table-body').innerHTML = '<div style="color:var(--mid);font-size:13px;padding:8px 0">No prices found. Try adding more detail to the product name or SKU and search again.</div>';
     } else {
-      const sorted = [...results].sort((a,b) => (a.price||999999)-(b.price||999999));
+      // Keep backend sort order (reputable retailers first, then by price)
       document.getElementById('pricing-table-body').innerHTML = `
         <table style="width:100%;border-collapse:collapse;font-size:12.5px">
           <thead>
@@ -1503,21 +1503,28 @@ async function runPricingSearch(){
               <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--dark)">Retailer</th>
               <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--dark)">Product</th>
               <th style="padding:8px 10px;text-align:right;font-weight:600;color:var(--dark)">Price</th>
-              <th style="padding:8px 10px;text-align:center;font-weight:600;color:var(--dark)">Stock</th>
+              <th style="padding:8px 10px;text-align:center;font-weight:600;color:var(--dark)">Link</th>
             </tr>
           </thead>
           <tbody>
-            ${sorted.map((r,i) => `
+            ${results.map((r,i) => {
+              const reputableBadge = r.reputable ? '<span style="font-size:9px;background:#f0ebe1;color:#b8963e;border-radius:3px;padding:1px 4px;margin-left:4px;font-weight:600">★</span>' : '';
+              const linkCell = r.url
+                ? `<a href="${r.url}" target="_blank" rel="noopener" style="color:var(--gold);text-decoration:none;font-weight:500;font-size:11px">${r.reachable===false?'⚠ Check link':'Open →'}</a>`
+                : '—';
+              return `
               <tr style="border-top:1px solid var(--border);background:${i%2===0?'#fff':'#fdfcfb'}">
-                <td style="padding:8px 10px;font-weight:600;color:var(--dark)">${r.retailer||'—'}</td>
-                <td style="padding:8px 10px;color:var(--dark)">
-                  <a href="${r.url||'#'}" target="_blank" style="color:var(--gold);text-decoration:none;font-weight:500" title="${r.url||''}">${(r.title||'View product').substring(0,60)}${(r.title||'').length>60?'…':''}</a>
+                <td style="padding:8px 10px;font-weight:600;color:var(--dark)">${r.retailer||'—'}${reputableBadge}</td>
+                <td style="padding:8px 10px;color:var(--dark);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.title||'').replace(/"/g,"'")}">
+                  ${(r.title||'View product').substring(0,60)}${(r.title||'').length>60?'…':''}
                 </td>
                 <td style="padding:8px 10px;text-align:right;font-weight:700;font-size:14px;color:${r.price===data.floor?'#2d6a4f':r.price===data.ceiling?'#6b4c3b':'var(--dark)'}">${r.price?'$'+r.price.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}):'N/A'}</td>
-                <td style="padding:8px 10px;text-align:center">${r.in_stock===false?'<span style="color:#999;font-size:11px">Out of stock</span>':'<span style="color:#2d6a4f;font-size:11px">✓ Available</span>'}</td>
-              </tr>`).join('')}
+                <td style="padding:8px 10px;text-align:center">${linkCell}</td>
+              </tr>`;
+            }).join('')}
           </tbody>
-        </table>`;
+        </table>
+        <div style="font-size:11px;color:var(--mid);margin-top:6px">★ = major furniture retailer</div>`;
     }
 
     if(data.query_used){
