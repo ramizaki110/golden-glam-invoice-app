@@ -345,35 +345,17 @@ def api_price_check():
 
     GOOGLE_KEY   = os.environ.get("GOOGLE_SEARCH_API_KEY", "")
     GOOGLE_CX    = os.environ.get("GOOGLE_SEARCH_CX", "")
-    CLAUDE_KEY   = os.environ.get("ANTHROPIC_API_KEY", "")
-
     if not GOOGLE_KEY or not GOOGLE_CX:
         return jsonify({"ok": False,
             "error": "Google Search API not configured. Add GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_CX to your Render environment variables. See setup guide in Notion."}), 503
 
-    # ── Step 1: Identify product from image ───────────────────────────────────
+    # ── Step 1: Build search query from text (no Claude needed) ─────────────────
     identified = product_text
-    if image_b64 and not product_text:
-        if not CLAUDE_KEY:
-            return jsonify({"ok": False, "error": "ANTHROPIC_API_KEY not set — needed for image identification."}), 503
-        try:
-            body = json.dumps({
-                "model": "claude-sonnet-4-6",
-                "max_tokens": 150,
-                "messages": [{"role": "user", "content": [
-                    {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": image_b64}},
-                    {"type": "text", "text": "Identify this furniture/home decor product concisely. Return ONLY: brand (if visible), product name, key dimensions. 1-2 lines. Used as a Google search query."}
-                ]}]
-            }).encode()
-            req = urllib.request.Request("https://api.anthropic.com/v1/messages", data=body,
-                headers={"x-api-key": CLAUDE_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"}, method="POST")
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                identified = json.loads(resp.read())["content"][0]["text"].strip()
-        except Exception as e:
-            return jsonify({"ok": False, "error": f"Image identification failed: {e}"}), 500
-
     if not identified and not sku:
-        return jsonify({"ok": False, "error": "Please provide a product image, name, or SKU."}), 400
+        if image_b64:
+            return jsonify({"ok": False,
+                "error": "Please also type the product name or SKU in the fields below the image — this lets us search without any AI identification cost."}), 400
+        return jsonify({"ok": False, "error": "Please provide a product name or SKU."}), 400
 
     # ── Step 2: Google Custom Search ──────────────────────────────────────────
     parts = []
@@ -394,56 +376,20 @@ def api_price_check():
         return jsonify({"ok": True, "identified_product": identified, "results": [],
                         "floor": None, "ceiling": None, "suggested": None, "query_used": query})
 
-    # ── Step 3: Extract prices with Claude ────────────────────────────────────
+    # ── Step 3: Extract prices from search snippets (regex, no Claude needed) ─
+    import re
     results = []
-    if CLAUDE_KEY:
-        snippets = "\n".join([f"{i+1}. {it.get('title','')} | {it.get('link','')} | {it.get('snippet','')}"
-                                for i, it in enumerate(items)])
-        try:
-            body = json.dumps({
-                "model": "claude-sonnet-4-6",
-                "max_tokens": 1000,
-                "messages": [{"role": "user", "content":
-                    f'''Extract prices from these US retailer search results for: "{identified or sku}"
-
-{snippets}
-
-Return ONLY a valid JSON array (no markdown, no explanation):
-[{{"retailer":"Wayfair","price":299.99,"url":"https://...","title":"Product name","in_stock":true}}]
-
-Rules:
-- Only include items with a clear USD price in the snippet/title
-- price = number only, no $ sign
-- in_stock: true unless explicitly says out of stock/discontinued  
-- Return [] if truly no prices found
-- Max 8 results'''
-                }]
-            }).encode()
-            req = urllib.request.Request("https://api.anthropic.com/v1/messages", data=body,
-                headers={"x-api-key": CLAUDE_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"}, method="POST")
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                raw = json.loads(resp.read())["content"][0]["text"].strip()
-            import re
-            m = re.search(r'\[.*\]', raw, re.S)
-            if m:
-                results = json.loads(m.group())
-        except Exception as e:
-            print(f"[pricing] Price extraction error: {e}")
-
-    # Fallback: parse snippets directly if Claude unavailable or returned nothing
-    if not results:
-        import re
-        for it in items:
-            snippet = it.get("snippet", "") + " " + it.get("title", "")
-            prices = re.findall(r'\$([\d,]+(?:\.\d{2})?)', snippet)
-            if prices:
-                try:
-                    price = float(prices[0].replace(",", ""))
-                    domain = urlparse.urlparse(it["link"]).netloc.replace("www.", "")
-                    results.append({"retailer": domain, "price": price,
-                                    "url": it["link"], "title": it.get("title",""), "in_stock": True})
-                except Exception:
-                    pass
+    for it in items:
+        snippet = it.get("snippet", "") + " " + it.get("title", "")
+        prices = re.findall(r'\$([\d,]+(?:\.\d{2})?)', snippet)
+        if prices:
+            try:
+                price = float(prices[0].replace(",", ""))
+                domain = urlparse.urlparse(it["link"]).netloc.replace("www.", "")
+                results.append({"retailer": domain, "price": price,
+                                "url": it["link"], "title": it.get("title",""), "in_stock": True})
+            except Exception:
+                pass
 
     # ── Step 4: Compute price range ───────────────────────────────────────────
     prices = [r["price"] for r in results if isinstance(r.get("price"), (int, float)) and r["price"] > 0]
