@@ -439,25 +439,30 @@ def api_price_check():
     # ── Step 1: Extract visual descriptors from image via Haiku ───────────────
     visual_descriptors = ""
     image_used = False
+    vision_error = ""
     if image_b64 and ANTHROPIC_KEY:
         try:
             visual_descriptors = _extract_visual_descriptors(image_b64, ANTHROPIC_KEY)
             image_used = True
             print(f"[vision] descriptors: {visual_descriptors}")
         except Exception as e:
+            vision_error = str(e)
             print(f"[vision] failed: {e}")
-            # Fallback: use generic furniture term so search still runs
-            visual_descriptors = "furniture home decor"
-            image_used = True
 
     # ── Step 2: Build base search term ────────────────────────────────────────
     if product_text:
-        # Typed name + visual context for richer matching
         base_term = f"{product_text} {visual_descriptors}".strip() if visual_descriptors else product_text
     elif visual_descriptors:
         base_term = visual_descriptors
+        image_used = True
     elif sku:
         base_term = sku
+    elif image_b64 and not ANTHROPIC_KEY:
+        return jsonify({"ok": False,
+            "error": "Image identification requires ANTHROPIC_API_KEY to be set in Render environment variables."}), 503
+    elif image_b64 and vision_error:
+        return jsonify({"ok": False,
+            "error": f"Could not identify product from image ({vision_error}). Please type the product name or SKU below the image."}), 400
     else:
         return jsonify({"ok": False,
             "error": "Please provide a product name, SKU, or upload an image."}), 400

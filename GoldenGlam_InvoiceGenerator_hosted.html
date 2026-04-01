@@ -1384,20 +1384,37 @@ function handlePricingDrop(e){
 
 function handlePricingFile(file){
   if(!file) return;
+  window._pricingBlob = file;
   const reader = new FileReader();
   reader.onload = (e) => {
     const dataUrl = e.target.result;
-    _pricingImageB64 = dataUrl.split(',')[1];
-    const preview = document.getElementById('pricing-img-preview');
-    preview.src = dataUrl;
-    preview.style.display = 'block';
-    document.getElementById('pricing-drop-label').style.display = 'none';
-    document.getElementById('pricing-img-clear').style.display = 'block';
-    document.getElementById('pricing-drop-zone').style.borderColor = 'var(--gold)';
-    // Show Google Lens button
-    document.getElementById('pricing-lens-btn').style.display = 'inline-block';
-    // Store blob URL for Lens upload
-    window._pricingBlob = file;
+    // Compress image to max 768px and 0.75 quality before sending to API
+    // This prevents Haiku from failing on large images (phones take 4-8MB photos)
+    const img = new Image();
+    img.onload = () => {
+      const MAX = 768;
+      let w = img.width, h = img.height;
+      if(w > MAX || h > MAX){
+        if(w > h){ h = Math.round(h * MAX / w); w = MAX; }
+        else      { w = Math.round(w * MAX / h); h = MAX; }
+      }
+      const cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      cv.getContext('2d').drawImage(img, 0, 0, w, h);
+      const compressed = cv.toDataURL('image/jpeg', 0.75);
+      _pricingImageB64 = compressed.split(',')[1];
+      const kb = Math.round(_pricingImageB64.length * 0.75 / 1024);
+      console.log(`[pricing] image compressed to ${w}x${h}, ~${kb}KB`);
+
+      const preview = document.getElementById('pricing-img-preview');
+      preview.src = compressed;
+      preview.style.display = 'block';
+      document.getElementById('pricing-drop-label').style.display = 'none';
+      document.getElementById('pricing-img-clear').style.display = 'block';
+      document.getElementById('pricing-drop-zone').style.borderColor = 'var(--gold)';
+      document.getElementById('pricing-lens-btn').style.display = 'inline-block';
+    };
+    img.src = dataUrl;
   };
   reader.readAsDataURL(file);
 }
