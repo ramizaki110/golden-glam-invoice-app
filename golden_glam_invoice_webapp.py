@@ -405,16 +405,19 @@ def _shopping_results_to_rows(items: list) -> list:
         price = _parse_price(it.get("price", ""))
         if price is None:
             continue
-        link   = it.get("link") or it.get("product_link") or ""
-        source = it.get("source", "")
-        domain = urllib.parse.urlparse(link).netloc.replace("www.", "") if link else source
+        link      = it.get("link") or it.get("product_link") or ""
+        source    = it.get("source", "")  # actual retailer name e.g. "Wayfair"
+        # Use source name directly — Shopping links often go via Google redirects
+        domain    = urllib.parse.urlparse(link).netloc.replace("www.", "") if link else ""
+        retailer  = source or domain  # prefer source field
         rows.append({
-            "retailer":  domain or source,
-            "price":     price,
-            "url":       link,
-            "title":     it.get("title", ""),
-            "thumbnail": it.get("thumbnail", ""),
-            "reputable": any(r in domain for r in FURNITURE_RETAILERS),
+            "retailer":    retailer,
+            "price":       price,
+            "url":         link,
+            "title":       it.get("title", ""),
+            "thumbnail":   it.get("thumbnail", ""),
+            "reputable":   any(r in (source.lower() + domain) for r in FURNITURE_RETAILERS),
+            "source_type": "shopping",
         })
     return rows
 
@@ -423,18 +426,24 @@ def _lens_results_to_rows(matches: list) -> list:
     """Convert SerpAPI Google Lens visual_matches into our standard row format."""
     rows = []
     for it in matches:
-        price = _parse_price(it.get("price", {}).get("value") if isinstance(it.get("price"), dict) else it.get("price", ""))
+        price_raw = it.get("price")
+        if isinstance(price_raw, dict):
+            price = _parse_price(price_raw.get("value", ""))
+        else:
+            price = _parse_price(price_raw or "")
         if price is None:
             continue
-        link   = it.get("link", "")
-        domain = urllib.parse.urlparse(link).netloc.replace("www.", "")
+        link     = it.get("link", "")
+        domain   = urllib.parse.urlparse(link).netloc.replace("www.", "")
+        source   = it.get("source", domain)
         rows.append({
-            "retailer":  domain,
-            "price":     price,
-            "url":       link,
-            "title":     it.get("title", ""),
-            "thumbnail": it.get("thumbnail", ""),
-            "reputable": any(r in domain for r in FURNITURE_RETAILERS),
+            "retailer":    source or domain,
+            "price":       price,
+            "url":         link,
+            "title":       it.get("title", ""),
+            "thumbnail":   it.get("thumbnail", ""),
+            "reputable":   any(r in domain for r in FURNITURE_RETAILERS),
+            "source_type": "lens",
         })
     return rows
 
@@ -549,8 +558,8 @@ def _price_check_inner():
             seen.add(key)
             deduped.append(r)
 
-    # Sort: reputable retailers first, then by price
-    deduped.sort(key=lambda r: (not r["reputable"], r["price"]))
+    # Sort: Lens visual matches first, then reputable retailers, then by price
+    deduped.sort(key=lambda r: (r.get("source_type")!="lens", not r.get("reputable",False), r["price"]))
 
     # ── Step 5: Price range ───────────────────────────────────────────────────
     if not deduped:
