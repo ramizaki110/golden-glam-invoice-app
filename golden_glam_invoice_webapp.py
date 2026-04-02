@@ -708,6 +708,44 @@ def _price_check_inner():
 
 # ── Delivery Estimate ─────────────────────────────────────────────────────────
 
+
+def _fetch_page_shipping(url: str, zip_code: str, timeout: int = 8) -> str:
+    # Fetch a product page and look for shipping/delivery text
+    try:
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "text/html,application/xhtml+xml",
+        })
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read()
+            try:
+                text = raw.decode("utf-8")
+            except Exception:
+                text = raw.decode("latin-1", errors="ignore")
+        # Strip HTML tags
+        import re
+        plain = re.sub(r"<[^>]+>", " ", text)
+        plain = re.sub(r"\s+", " ", plain)
+        plain_lower = plain.lower()
+        # Look for shipping/delivery snippets
+        patterns = [
+            r"free\s+(?:standard\s+)?(?:shipping|delivery)[^.]{0,80}",
+            r"(?:white\s+glove|threshold|room\s+of\s+choice)[^.]{0,100}",
+            r"(?:shipping|delivery)[^.]{0,60}?\$[\d,]+(?:\.\d{2})?",
+            r"estimated\s+(?:shipping|delivery)[^.]{0,80}",
+            r"ships?\s+(?:in|within|to)[^.]{0,60}",
+        ]
+        for pat in patterns:
+            m = re.search(pat, plain_lower)
+            if m:
+                snippet = plain[m.start():m.end()].strip()
+                if 8 < len(snippet) < 160:
+                    return snippet.capitalize()
+    except Exception as e:
+        print(f"[delivery] fetch failed for {url[:50]}: {e}")
+    return ""
+
+
 @app.post("/api/delivery-estimate")
 def api_delivery_estimate():
     try:
@@ -716,10 +754,13 @@ def api_delivery_estimate():
         import traceback; traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
 
+
 def _delivery_estimate_inner():
-    payload      = request.get_json(silent=True) or {}
-    product_name = payload.get("product", "").strip()
-    zip_code     = payload.get("zip", "").strip()
+    payload       = request.get_json(silent=True) or {}
+    product_name  = payload.get("product", "").strip()
+    address       = payload.get("address", "").strip()
+    zip_code      = payload.get("zip", "30030").strip()
+    retailer_urls = payload.get("urls", [])
 
     SERPAPI_KEY = os.environ.get("SERPAPI_KEY", "")
     if not SERPAPI_KEY:
@@ -727,42 +768,69 @@ def _delivery_estimate_inner():
     if not product_name:
         return jsonify({"ok": False, "error": "No product name provided"}), 400
 
-    # Search for delivery/shipping costs for this product
-    query = f"{product_name} delivery shipping cost {zip_code} furniture"
+    # Use provided address or fall back to zip only
+    delivery_addr = address or f"zip {zip_code}"
+    # Extract city/state from address for better search queries
+    import re as _re
+    city_state_m = _re.search(r'([A-Za-z ]+),\s*([A-Z]{2})\s+\d{5}', delivery_addr)
+    city_state   = f"{city_state_m.group(1).strip()}, {city_state_m.group(2)}" if city_state_m else zip_code
+    results       = []
+
+    # Strategy 1: Scrape product pages from checked retailer URLs
+    for url in retailer_urls[:6]:
+        if not url or "google.com" in url:
+            continue
+        domain   = urllib.parse.urlparse(url).netloc.replace("www.", "")
+        shipping = _fetch_page_shipping(url, zip_code)
+        if shipping:
+            results.append({
+                "retailer": domain,
+                "shipping": shipping,
+                "url":      url,
+                "reliable": True,
+            })
+            print(f"[delivery] scraped {domain}: {shipping[:60]}")
+
+    # Strategy 2: SerpAPI Shopping search with address for remaining retailers
+    query = f"{product_name} shipping delivery {city_state} {zip_code} furniture"
     try:
-        data = _serpapi_get({
+        shop_data = _serpapi_get({
             "engine": "google_shopping",
             "q":      query,
             "gl":     "us",
             "hl":     "en",
             "num":    "10",
         }, SERPAPI_KEY, timeout=15)
+
+        seen = {r["retailer"].lower() for r in results}
+        for it in shop_data.get("shopping_results", []):
+            source = it.get("source", "")
+            if source.lower() in seen:
+                continue
+            shipping = it.get("delivery") or it.get("shipping") or ""
+            if not shipping:
+                for ext in (it.get("extensions") or []):
+                    if any(w in ext.lower() for w in ["ship","deliver","freight","white glove","free"]):
+                        shipping = ext
+                        break
+            if not shipping:
+                continue
+            results.append({
+                "retailer": source,
+                "shipping": shipping,
+                "url":      it.get("link", ""),
+                "reliable": False,
+            })
+            seen.add(source.lower())
     except Exception as e:
-        return jsonify({"ok": False, "error": f"Search failed: {e}"}), 500
+        print(f"[delivery] SerpAPI search failed: {e}")
 
-    # Extract shipping info from results
-    results = []
-    for it in data.get("shopping_results", []):
-        shipping = it.get("delivery") or it.get("shipping") or ""
-        if not shipping:
-            # Try to find shipping in extensions
-            for ext in it.get("extensions", []):
-                if any(w in ext.lower() for w in ["ship","deliver","freight","white glove"]):
-                    shipping = ext
-                    break
-        if not shipping:
-            continue
-        source = it.get("source","")
-        price  = _parse_price(it.get("price",""))
-        results.append({
-            "retailer": source,
-            "product":  it.get("title","")[:60],
-            "price":    price,
-            "shipping": shipping,
-            "url":      it.get("link",""),
-        })
-
-    return jsonify({"ok": True, "results": results[:8], "query": query})
+    return jsonify({
+        "ok":      True,
+        "results": results[:10],
+        "address": delivery_addr,
+        "zip":     zip_code,
+    })
 
 
 # ── Core routes ────────────────────────────────────────────────────────────────
