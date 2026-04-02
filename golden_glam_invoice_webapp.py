@@ -391,7 +391,7 @@ FURNITURE_RETAILERS = {
     "lulu and georgia", "topmodern", "luxedecor", "2modern",
     "abc carpet & home", "abc carpet and home", "stash home furniture",
     "grayson living", "mcgee & co", "mcgee and co", "layla grayce",
-    "city home", "fine line furniture", "perigold", "hayneedle",
+    "city home", "fine line furniture", "perigold", "perigold by wayfair", "hayneedle",
     "overstock", "target", "ikea", "amazon",
 }
 
@@ -598,7 +598,8 @@ def _price_check_inner():
 
     product_name = shopping_query
 
-    # ── Step 3: Google Shopping ───────────────────────────────────────────────
+    # ── Step 3: Google Shopping — two passes ────────────────────────────────
+    # Pass 1: General search
     try:
         shopping_data = _serpapi_get({
             "engine": "google_shopping",
@@ -607,15 +608,34 @@ def _price_check_inner():
             "hl":     "en",
             "num":    "20",
         }, SERPAPI_KEY, timeout=15)
-
-        shopping_rows = _shopping_results_to_rows(
-            shopping_data.get("shopping_results", [])
-        )
+        shopping_rows = _shopping_results_to_rows(shopping_data.get("shopping_results", []))
         results += shopping_rows
-        print(f"[shopping] query='{shopping_query}' found {len(shopping_rows)} priced results")
-
+        print(f"[shopping] pass1 found {len(shopping_rows)} results")
     except Exception as e:
-        print(f"[shopping] failed: {e}")
+        print(f"[shopping] pass1 failed: {e}")
+
+    # Pass 2: Targeted at reputable furniture retailers to surface Perigold,
+    # West Elm, Pottery Barn etc. that may not rank organically
+    TARGETED_SITES = (
+        "site:perigold.com OR site:westelm.com OR site:potterybarn.com OR "
+        "site:crateandbarrel.com OR site:rh.com OR site:cb2.com OR "
+        "site:serenaandlily.com OR site:arhaus.com OR site:luluandgeorgia.com OR "
+        "site:onekingslane.com OR site:laylagrayce.com OR site:2modern.com OR "
+        "site:luxedecor.com OR site:topmodern.com OR site:roomandboard.com"
+    )
+    try:
+        targeted_data = _serpapi_get({
+            "engine": "google_shopping",
+            "q":      f"{shopping_query} ({TARGETED_SITES})",
+            "gl":     "us",
+            "hl":     "en",
+            "num":    "10",
+        }, SERPAPI_KEY, timeout=15)
+        targeted_rows = _shopping_results_to_rows(targeted_data.get("shopping_results", []))
+        results += targeted_rows
+        print(f"[shopping] pass2 (targeted) found {len(targeted_rows)} results")
+    except Exception as e:
+        print(f"[shopping] pass2 failed: {e}")
 
     # ── Step 4: Deduplicate by URL ────────────────────────────────────────────
     seen, deduped = set(), []
@@ -683,6 +703,65 @@ def _price_check_inner():
         "suggested":          suggested,
         "query_used":         shopping_query,
     })
+
+
+# ── Delivery Estimate ─────────────────────────────────────────────────────────
+
+@app.post("/api/delivery-estimate")
+def api_delivery_estimate():
+    try:
+        return _delivery_estimate_inner()
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+def _delivery_estimate_inner():
+    payload      = request.get_json(silent=True) or {}
+    product_name = payload.get("product", "").strip()
+    zip_code     = payload.get("zip", "").strip()
+
+    SERPAPI_KEY = os.environ.get("SERPAPI_KEY", "")
+    if not SERPAPI_KEY:
+        return jsonify({"ok": False, "error": "SerpAPI not configured"}), 503
+    if not product_name:
+        return jsonify({"ok": False, "error": "No product name provided"}), 400
+
+    # Search for delivery/shipping costs for this product
+    query = f"{product_name} delivery shipping cost {zip_code} furniture"
+    try:
+        data = _serpapi_get({
+            "engine": "google_shopping",
+            "q":      query,
+            "gl":     "us",
+            "hl":     "en",
+            "num":    "10",
+        }, SERPAPI_KEY, timeout=15)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Search failed: {e}"}), 500
+
+    # Extract shipping info from results
+    results = []
+    for it in data.get("shopping_results", []):
+        shipping = it.get("delivery") or it.get("shipping") or ""
+        if not shipping:
+            # Try to find shipping in extensions
+            for ext in it.get("extensions", []):
+                if any(w in ext.lower() for w in ["ship","deliver","freight","white glove"]):
+                    shipping = ext
+                    break
+        if not shipping:
+            continue
+        source = it.get("source","")
+        price  = _parse_price(it.get("price",""))
+        results.append({
+            "retailer": source,
+            "product":  it.get("title","")[:60],
+            "price":    price,
+            "shipping": shipping,
+            "url":      it.get("link",""),
+        })
+
+    return jsonify({"ok": True, "results": results[:8], "query": query})
 
 
 # ── Core routes ────────────────────────────────────────────────────────────────
