@@ -582,22 +582,25 @@ def _price_check_inner():
             print("[lens] skipping Lens — no image URL available")
 
     # ── Step 2: Determine Shopping query ──────────────────────────────────────
-    # If user typed a name — ALWAYS use that, never override with Lens.
-    # Lens identification is unreliable; typed text is authoritative.
-    shopping_query = product_text or lens_name or sku
-    if not shopping_query:
-        if image_used:
-            # Lens ran but couldn't identify — search generically for furniture
-            shopping_query = "furniture home decor"
-            print("[shopping] Lens returned no name, falling back to generic search")
-        else:
-            return jsonify({"ok": False,
-                "error": "Please provide a product name, SKU, or upload an image."}), 400
-
-    if sku and sku not in shopping_query:
-        shopping_query = f"{shopping_query} {sku}"
+    # Priority: typed product name > SKU > lens-identified name
+    # Typed text is ALWAYS authoritative — never override with Lens
+    if product_text and sku:
+        shopping_query = f"{product_text} {sku}"
+    elif product_text:
+        shopping_query = product_text
+    elif sku:
+        shopping_query = sku
+    elif lens_name:
+        shopping_query = lens_name
+    elif image_used:
+        shopping_query = "furniture home decor"
+        print("[shopping] Lens returned no name, falling back to generic search")
+    else:
+        return jsonify({"ok": False,
+            "error": "Please provide a product name, SKU, or upload an image."}), 400
 
     product_name = shopping_query
+    print(f"[shopping] query: '{shopping_query}' (typed={bool(product_text)}, sku={bool(sku)}, lens={bool(lens_name)})")
 
     # ── Step 3: Google Shopping — two passes ────────────────────────────────
     # Pass 1: General search
@@ -776,54 +779,90 @@ def _delivery_estimate_inner():
     city_state   = f"{city_state_m.group(1).strip()}, {city_state_m.group(2)}" if city_state_m else zip_code
     results       = []
 
-    # Strategy 1: Scrape product pages from checked retailer URLs
-    for url in retailer_urls[:6]:
+    # Strategy 1: SerpAPI Shopping — search specifically for furniture delivery costs
+    # We search for white glove / threshold delivery which is relevant for furniture
+    queries = [
+        f"{product_name} white glove delivery {city_state}",
+        f"{product_name} shipping cost {city_state} {zip_code}",
+    ]
+    seen = set()
+    for query in queries:
+        try:
+            shop_data = _serpapi_get({
+                "engine": "google_shopping",
+                "q":      query,
+                "gl":     "us",
+                "hl":     "en",
+                "num":    "10",
+            }, SERPAPI_KEY, timeout=15)
+
+            for it in shop_data.get("shopping_results", []):
+                source = it.get("source", "")
+                if source.lower() in seen:
+                    continue
+
+                # Get shipping from dedicated delivery field or extensions
+                shipping = it.get("delivery") or ""
+                if not shipping:
+                    for ext in (it.get("extensions") or []):
+                        ext_l = ext.lower()
+                        if any(w in ext_l for w in ["white glove","threshold","room of choice","freight","delivery"]):
+                            shipping = ext
+                            break
+
+                if not shipping:
+                    continue
+
+                # Filter out generic "free shipping" claims — these are usually for
+                # small parcel items, not large furniture delivery. Furniture delivery
+                # to a residential address is rarely free and typically $150-$400+.
+                ship_lower = shipping.lower()
+                is_small_parcel_claim = (
+                    ship_lower.strip() in ("free", "free shipping", "free delivery") and
+                    not any(w in ship_lower for w in ["white glove","threshold","room","freight"])
+                )
+                if is_small_parcel_claim:
+                    shipping = f"Standard: {shipping} (verify — may not include furniture delivery surcharge)"
+
+                results.append({
+                    "retailer": source,
+                    "shipping": shipping,
+                    "url":      it.get("link", ""),
+                    "reliable": bool(it.get("delivery")),  # True if from dedicated delivery field
+                })
+                seen.add(source.lower())
+        except Exception as e:
+            print(f"[delivery] query '{query[:40]}' failed: {e}")
+
+    # Strategy 2: Scrape product pages for any checked retailers not found above
+    for url in retailer_urls[:4]:
         if not url or "google.com" in url:
             continue
-        domain   = urllib.parse.urlparse(url).netloc.replace("www.", "")
+        domain = urllib.parse.urlparse(url).netloc.replace("www.", "")
+        if domain.lower() in seen:
+            continue
         shipping = _fetch_page_shipping(url, zip_code)
         if shipping:
+            ship_lower = shipping.lower()
+            # Same filter — flag suspiciously cheap shipping claims
+            if ship_lower.strip() in ("free", "free shipping", "free delivery"):
+                shipping = f"Standard: {shipping} (verify — furniture delivery fees may apply)"
             results.append({
                 "retailer": domain,
                 "shipping": shipping,
                 "url":      url,
-                "reliable": True,
-            })
-            print(f"[delivery] scraped {domain}: {shipping[:60]}")
-
-    # Strategy 2: SerpAPI Shopping search with address for remaining retailers
-    query = f"{product_name} shipping delivery {city_state} {zip_code} furniture"
-    try:
-        shop_data = _serpapi_get({
-            "engine": "google_shopping",
-            "q":      query,
-            "gl":     "us",
-            "hl":     "en",
-            "num":    "10",
-        }, SERPAPI_KEY, timeout=15)
-
-        seen = {r["retailer"].lower() for r in results}
-        for it in shop_data.get("shopping_results", []):
-            source = it.get("source", "")
-            if source.lower() in seen:
-                continue
-            shipping = it.get("delivery") or it.get("shipping") or ""
-            if not shipping:
-                for ext in (it.get("extensions") or []):
-                    if any(w in ext.lower() for w in ["ship","deliver","freight","white glove","free"]):
-                        shipping = ext
-                        break
-            if not shipping:
-                continue
-            results.append({
-                "retailer": source,
-                "shipping": shipping,
-                "url":      it.get("link", ""),
                 "reliable": False,
             })
-            seen.add(source.lower())
-    except Exception as e:
-        print(f"[delivery] SerpAPI search failed: {e}")
+            seen.add(domain.lower())
+
+    if not results:
+        return jsonify({
+            "ok":      True,
+            "results": [],
+            "note":    "No delivery estimates found. Furniture delivery to a residential address typically ranges from $99–$399 for threshold delivery to $199–$499 for white glove (room of choice, assembly included). Verify directly with each retailer.",
+            "address": delivery_addr,
+            "zip":     zip_code,
+        })
 
     return jsonify({
         "ok":      True,

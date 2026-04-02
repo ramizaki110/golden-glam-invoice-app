@@ -387,8 +387,12 @@
 
     <div class="grid2" style="margin-top:4px">
       <div class="field">
-        <label>Delivery address <span style="font-size:10px;font-weight:400;color:var(--mid)">(street, city, state, zip)</span></label>
-        <input id="pricing-address" placeholder="e.g. 431 Eastland Dr, Decatur, GA 30030">
+        <label>Delivery address <span style="font-size:10px;font-weight:400;color:var(--mid)">(for shipping estimates)</span></label>
+        <div style="position:relative">
+          <input id="pricing-address" placeholder="e.g. 431 Eastland Dr, Decatur, GA 30030"
+            autocomplete="off" oninput="addressAutocomplete(this.value)" onblur="setTimeout(()=>document.getElementById('addr-suggestions').style.display='none',200)">
+          <div id="addr-suggestions" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.1);z-index:100;max-height:200px;overflow-y:auto"></div>
+        </div>
       </div>
       <div class="field">
         <label>My cost price (from vendor) <span style="font-size:10px;font-weight:400;color:var(--mid)">(optional — for profit calc)</span></label>
@@ -1478,10 +1482,16 @@ function _renderPricingTable(results, data){
   const title = document.getElementById('pricing-table-title');
   title.textContent = `Competitor prices — ${results.length} result${results.length!==1?'s':''} found`;
 
-  // Auto-detect outliers: uncheck prices outside 0.35x – 2.5x of the median
-  const allPrices = results.map(r => r.price||0).filter(p => p > 0).sort((a,b)=>a-b);
-  const median    = allPrices[Math.floor(allPrices.length/2)] || 0;
-  const isOutlier = p => median > 0 && (p < median * 0.35 || p > median * 2.0);
+  // Auto-detect outliers using IQR method
+  const allPrices  = results.map(r => r.price||0).filter(p => p > 0).sort((a,b)=>a-b);
+  const n          = allPrices.length;
+  const q1         = n >= 4 ? allPrices[Math.floor(n * 0.25)] : 0;
+  const q3         = n >= 4 ? allPrices[Math.floor(n * 0.75)] : 0;
+  const iqr        = q3 - q1;
+  const lowerFence = Math.max(0, q1 - 1.5 * iqr);
+  const upperFence = q3 + 1.5 * iqr;
+  console.log(`[outlier] n=${n} Q1=${q1} Q3=${q3} IQR=${iqr} fence=[${lowerFence.toFixed(0)}, ${upperFence.toFixed(0)}]`);
+  const isOutlier  = p => n >= 4 && iqr > 0 && (p < lowerFence || p > upperFence);
 
   document.getElementById('pricing-table-body').innerHTML = `
     <table style="width:100%;border-collapse:collapse;font-size:12.5px">
@@ -1539,6 +1549,37 @@ function _renderPricingTable(results, data){
   recalcPricing();
 }
 
+let _addrTimer = null;
+async function addressAutocomplete(val){
+  const box = document.getElementById('addr-suggestions');
+  if(!val || val.length < 4){ box.style.display='none'; return; }
+  clearTimeout(_addrTimer);
+  _addrTimer = setTimeout(async () => {
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(val)}&format=json&addressdetails=1&limit=5&countrycodes=us`;
+      const res  = await fetch(url, {headers:{'Accept-Language':'en'}});
+      const data = await res.json();
+      if(!data.length){ box.style.display='none'; return; }
+      box.innerHTML = data.map(item => {
+        const addr = item.address;
+        // Build a clean US address string
+        const parts = [
+          addr.house_number && addr.road ? `${addr.house_number} ${addr.road}` : addr.road,
+          addr.city || addr.town || addr.village || addr.county,
+          addr.state,
+          addr.postcode
+        ].filter(Boolean);
+        const display = parts.join(', ');
+        return `<div style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)"
+          onmousedown="document.getElementById('pricing-address').value='${display.replace(/'/g,"\'")}';document.getElementById('addr-suggestions').style.display='none'">
+          ${display}
+        </div>`;
+      }).join('');
+      box.style.display = 'block';
+    } catch(e){ box.style.display='none'; }
+  }, 350);
+}
+
 async function fetchDeliveryEstimate(productName, zip, urls=[], address=''){
   const card  = document.getElementById('pricing-delivery-card');
   const body  = document.getElementById('pricing-delivery-body');
@@ -1556,7 +1597,8 @@ async function fetchDeliveryEstimate(productName, zip, urls=[], address=''){
     });
     const data = await res.json();
     if(!data.ok || !data.results || data.results.length === 0){
-      body.innerHTML = '<div style="color:var(--mid);font-size:13px;padding:8px 0">No delivery pricing found. Contact retailers directly for shipping quotes to ' + zip + '.</div>';
+      const note = data.note || ('No delivery estimates found for ' + (data.address||zip) + '.<br>Furniture delivery typically ranges <strong>$99–$499</strong> depending on service level. Verify directly with each retailer.');
+      body.innerHTML = `<div style="font-size:12px;color:var(--mid);line-height:1.6;padding:4px 0">${note}</div>`;
       return;
     }
     body.innerHTML = `
@@ -1716,21 +1758,26 @@ async function runPricingSearch(){
       return;
     }
 
-    // Identified product — show lens name + pre-fill product field if it was empty
-    const identifiedLabel = data.lens_name || data.identified_product;
-    const productField    = document.getElementById('pricing-product');
-    if(data.lens_name && !productField.value.trim()){
-      // Pre-fill so user can correct and re-search if wrong
+    // Identified product display
+    const productField = document.getElementById('pricing-product');
+    const typedName    = productField.value.trim();
+    const identText    = document.getElementById('pricing-identified-text');
+
+    if(typedName){
+      // User typed a name — that's what was searched. Lens result is secondary context.
+      let msg = `🔎 Searched for: <strong>${typedName}</strong>`;
+      if(data.lens_name && data.lens_name.toLowerCase() !== typedName.toLowerCase()){
+        msg += ` <span style="font-size:11px;color:var(--mid)">(Lens saw: ${data.lens_name})</span>`;
+      }
+      identText.innerHTML = msg;
+      document.getElementById('pricing-identified').style.display = 'block';
+    } else if(data.lens_name){
+      // No typed name — Lens drove the search. Pre-fill so user can correct.
       productField.value = data.lens_name;
       productField.style.border = '2px solid var(--gold)';
       setTimeout(() => { productField.style.border = ''; }, 3000);
-    }
-    if(identifiedLabel){
-      const prefix = data.lens_name ? '🔍 Google Lens identified: ' : '🔎 Searched for: ';
-      const identText = document.getElementById('pricing-identified-text');
-      identText.innerHTML = `<span>${prefix}<strong>${identifiedLabel}</strong></span>
-        <span style="margin-left:12px;font-size:11px;color:var(--mid)">
-          Wrong? Edit the product name above and click
+      identText.innerHTML = `🔍 Google Lens identified: <strong>${data.lens_name}</strong>
+        <span style="margin-left:10px;font-size:11px;color:var(--mid)">Wrong? Edit above and click
           <button onclick="runPricingSearch()" style="background:var(--gold);color:#fff;border:none;padding:2px 8px;border-radius:4px;font-size:11px;cursor:pointer;font-weight:600">Re-search</button>
         </span>`;
       document.getElementById('pricing-identified').style.display = 'block';
