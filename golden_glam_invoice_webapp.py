@@ -525,62 +525,46 @@ def _price_check_inner():
                 }, SERPAPI_KEY, timeout=25)
                 visual_matches = lens_data.get("visual_matches", [])
                 if visual_matches:
-                    # Consensus product name: find the most frequent significant word
-                    # across top 10 Lens matches — much more reliable than top-1
-                    NOISE = {"the","and","for","with","from","this","that",
-                             "chair","table","sofa","lamp","desk","bench",
-                             "outdoor","indoor","patio","set","piece","home",
-                             "decor","collection","series","style","wood",
-                             "furniture","upholstered","dining","accent","side"}
-                    from collections import Counter
-                    word_counts = Counter()
-                    for vm in visual_matches[:10]:
-                        t = vm.get("title","").lower()
-                        for w in t.split():
-                            w = w.strip(".,()-/")
-                            if len(w) > 3 and w not in NOISE:
-                                word_counts[w] += 1
+                    import re as _re_lens
 
-                    # Top word that appears in multiple matches = most reliable identifier
-                def _clean_title(t):
-                    import re as _r
-                    for pat in [
-                        r'\s*[|\-]\s*(wayfair|pottery barn|west elm|perigold|crate.*barrel|restoration hardware|overstock|amazon|target|walmart|houzz).*$',
-                        r"\s*(you'?ll love|shop now|best sellers|on sale|free shipping).*$",
-                    ]:
-                        t = _r.sub(pat, '', t, flags=_r.IGNORECASE).strip()
-                    return t
-                    consensus_words = [w for w,c in word_counts.most_common(5) if c >= 2]
-                    if consensus_words:
-                        # Build query from consensus words + top match title for context
-                        lens_name = _clean_title(visual_matches[0].get("title",""))
-                        if consensus_words[0] not in lens_name.lower():
-                            for vm in visual_matches[:5]:
-                                c = _clean_title(vm.get("title",""))
-                                if consensus_words[0] in c.lower():
-                                    lens_name = c
-                                    break
-                    else:
-                        lens_name = _clean_title(visual_matches[0].get("title",""))
+                    def _clean_title(t):
+                        # Strip retailer page suffixes
+                        for pat in [
+                            r'\s*[|]\s*(wayfair|pottery barn|west elm|perigold|crate.*barrel|'
+                            r'restoration hardware|overstock|amazon|target|walmart|houzz|'
+                            r'google shopping|bing shopping)[^|]*$',
+                            r"\s*(you'?ll love|shop now|best sellers|on sale|free shipping)[^|]*$",
+                        ]:
+                            t = _re_lens.sub(pat, '', t, flags=_re_lens.IGNORECASE).strip()
+                        return t.strip()
 
-                    # Add color if detectable from matches
+                    # SIMPLE approach: just use the top Lens match title, cleaned
+                    # Lens already ranks by visual similarity — top result is best
+                    lens_name = ""
+                    for vm in visual_matches[:3]:
+                        candidate = _clean_title(vm.get("title", ""))
+                        if candidate and len(candidate) > 5:
+                            lens_name = candidate
+                            break
+
+                    # Append detected color if not already in name
                     COLOR_WORDS = ["natural","white","black","brown","grey","gray",
                                    "beige","cream","tan","teak","vintage","walnut",
                                    "ivory","charcoal","espresso","rattan","antique"]
-                    detected_color = next(
-                        (cw for vm in visual_matches[:5]
-                         for cw in COLOR_WORDS
-                         if cw in vm.get("title","").lower()
-                         and cw not in lens_name.lower()),
-                        ""
-                    )
-                    if detected_color:
-                        lens_name = f"{lens_name} {detected_color}"
+                    if lens_name:
+                        detected_color = next(
+                            (cw for vm in visual_matches[:5]
+                             for cw in COLOR_WORDS
+                             if cw in vm.get("title","").lower()
+                             and cw not in lens_name.lower()),
+                            ""
+                        )
+                        if detected_color:
+                            lens_name = f"{lens_name} {detected_color}"
 
-                    print(f"[lens] consensus={consensus_words[:3]} final_name='{lens_name}'")
+                    print(f"[lens] top_title='{visual_matches[0].get('title','')}' final_name='{lens_name}'")
                 results += _lens_results_to_rows(visual_matches)
                 print(f"[lens] {len(visual_matches)} visual matches")
-            except Exception as e:
                 print(f"[lens] SerpAPI call failed: {e}")
             finally:
                 _delete_temp_image(temp_filename)
