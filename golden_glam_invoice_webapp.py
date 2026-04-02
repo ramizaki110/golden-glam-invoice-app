@@ -48,7 +48,9 @@ def _ensure_bucket():
         )
         urllib.request.urlopen(req, timeout=8)
     except Exception as e:
-        if "409" not in str(e) and "already exists" not in str(e).lower():
+        # 400 or 409 both mean bucket already exists — that's fine
+        err = str(e)
+        if "400" not in err and "409" not in err and "already exists" not in err.lower():
             print(f"[storage] bucket create warning: {e}")
     _bucket_ensured = True
 
@@ -73,7 +75,7 @@ def _upload_temp_image(img_bytes: bytes):
                 "apikey":        key,
                 "Authorization": f"Bearer {key}",
                 "Content-Type":  "image/jpeg",
-                "Cache-Control": "no-cache",
+                "cache-control": "3600",
             },
             method="POST"
         )
