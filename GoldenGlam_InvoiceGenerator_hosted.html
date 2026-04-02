@@ -1456,7 +1456,7 @@ function _renderPricingTable(results, data){
   // Auto-detect outliers: uncheck prices outside 0.35x – 2.5x of the median
   const allPrices = results.map(r => r.price||0).filter(p => p > 0).sort((a,b)=>a-b);
   const median    = allPrices[Math.floor(allPrices.length/2)] || 0;
-  const isOutlier = p => median > 0 && (p < median * 0.35 || p > median * 2.5);
+  const isOutlier = p => median > 0 && (p < median * 0.35 || p > median * 2.0);
 
   document.getElementById('pricing-table-body').innerHTML = `
     <table style="width:100%;border-collapse:collapse;font-size:12.5px">
@@ -1507,7 +1507,8 @@ function _renderPricingTable(results, data){
       <button onclick="recalcPricing()" class="btn" style="background:var(--gold);color:#fff;border:none;padding:7px 18px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">
         ↻ Compare Selected
       </button>
-      <span style="font-size:11px;color:var(--mid)">★ = reputable retailer &nbsp;·&nbsp; <span style="color:#2d6a4f">Green</span> = lowest &nbsp;·&nbsp; <span style="color:#6b4c3b">Brown</span> = highest &nbsp;·&nbsp; Outliers auto-unchecked</span>
+      <span id="pricing-selected-count" style="font-size:12px;color:var(--dark);font-weight:500"></span>
+      <span style="font-size:11px;color:var(--mid)">★ = reputable &nbsp;·&nbsp; <span style="color:#2d6a4f">Green</span> = lowest &nbsp;·&nbsp; <span style="color:#6b4c3b">Brown</span> = highest &nbsp;·&nbsp; Outliers auto-unchecked</span>
     </div>`;
 
   // Run initial calculation with outliers excluded
@@ -1520,10 +1521,13 @@ function toggleAllPricing(checked){
 }
 
 function recalcPricing(){
-  const checks = document.querySelectorAll('.pricing-row-check');
-  const prices = [];
+  const checks  = document.querySelectorAll('.pricing-row-check');
+  const prices  = [];
+  const total   = checks.length;
+  let   checked = 0;
   checks.forEach(cb => {
     if(cb.checked){
+      checked++;
       const row = cb.closest('tr');
       const p   = parseFloat(row.querySelector('.price-cell').dataset.price);
       if(p > 0) prices.push(p);
@@ -1537,25 +1541,38 @@ function recalcPricing(){
   const sugg  = Math.round(avg*1.05/5)*5;
   const fmt   = n => '$'+n.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
 
+  // Update prices
   document.getElementById('pricing-floor').textContent     = fmt(floor);
   document.getElementById('pricing-ceiling').textContent   = fmt(ceil);
   document.getElementById('pricing-suggested').textContent = fmt(sugg);
 
-  // Update select-all checkbox state
-  const total   = document.querySelectorAll('.pricing-row-check').length;
-  const checked = document.querySelectorAll('.pricing-row-check:checked').length;
-  const selAll  = document.getElementById('pricing-select-all');
+  // Flash the price cards to confirm update
+  ['pricing-floor','pricing-ceiling','pricing-suggested'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el){
+      el.style.transition = 'background 0.15s';
+      el.style.background = 'rgba(184,150,62,0.15)';
+      setTimeout(() => { el.style.background = ''; }, 400);
+    }
+  });
+
+  // Update select-all checkbox
+  const selAll = document.getElementById('pricing-select-all');
   if(selAll) selAll.checked = checked === total;
+
+  // Update selected count label
+  const countEl = document.getElementById('pricing-selected-count');
+  if(countEl) countEl.textContent = `${checked} of ${total} selected`;
 
   // Update price cell colors
   document.querySelectorAll('.price-cell').forEach(cell => {
-    const p = parseFloat(cell.dataset.price);
-    const row = cell.closest('tr');
-    const cb  = row.querySelector('.pricing-row-check');
+    const p  = parseFloat(cell.dataset.price);
+    const cb = cell.closest('tr').querySelector('.pricing-row-check');
     if(cb && cb.checked){
       cell.style.color = p===floor?'#2d6a4f':p===ceil?'#6b4c3b':'var(--dark)';
     } else {
       cell.style.color = 'var(--mid)';
+      cell.style.textDecoration = 'line-through';
     }
   });
 }
@@ -1611,12 +1628,7 @@ async function runPricingSearch(){
       document.getElementById('pricing-identified').style.display = 'none';
     }
 
-    // Summary
-    document.getElementById('pricing-floor').textContent     = _fmt(data.floor);
-    document.getElementById('pricing-ceiling').textContent   = _fmt(data.ceiling);
-    document.getElementById('pricing-suggested').textContent = _fmt(data.suggested);
-
-    // Table — use shared render function (supports checkboxes)
+    // Table — use shared render function (handles price calculation + checkboxes)
     const results = data.results || [];
     window._pricingResults = results;
     window._pricingData    = data;
