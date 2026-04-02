@@ -24,26 +24,21 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32MB max upload
 
-# ── Temp image store for SerpAPI Lens (in-memory, auto-expires) ───────────────
-_temp_images: dict[str, tuple[str, str, float]] = {}  # token -> (b64, mime, expiry)
-
-
-def _cleanup_temp_images():
-    now = time.time()
-    expired = [t for t, (_, _, exp) in _temp_images.items() if now > exp]
-    for t in expired:
-        _temp_images.pop(t, None)
+# ── Temp image store for SerpAPI Lens (disk-based, shared across gunicorn workers) ──
+TEMP_IMG_DIR = OUTPUT_DIR  # reuse generated_invoices dir for temp images
 
 
 @app.get("/api/temp-image/<token>")
 def serve_temp_image(token: str):
-    _cleanup_temp_images()
-    entry = _temp_images.get(token)
-    if not entry:
+    # Security: only allow safe alphanumeric tokens (UUID format)
+    if not re.match(r'^[a-f0-9-]{36}$', token):
+        return "Invalid token", 400
+    img_path = TEMP_IMG_DIR / f"tmp_{token}.jpg"
+    if not img_path.exists():
         return "Not found", 404
-    b64_data, mime_type, _ = entry
-    img_bytes = base64.b64decode(b64_data)
-    return img_bytes, 200, {"Content-Type": mime_type, "Cache-Control": "no-store"}
+    with open(img_path, 'rb') as f:
+        data = f.read()
+    return data, 200, {"Content-Type": "image/jpeg", "Cache-Control": "no-store"}
 
 
 # ── Invoice parsing ────────────────────────────────────────────────────────────
@@ -402,52 +397,62 @@ def _price_check_inner():
 
     # ── Step 1: Google Lens (image search) ────────────────────────────────────
     if image_b64:
-        # Determine mime type
+        image_used = True  # mark as image search regardless of Lens outcome
+
+        # Decode base64
         if "," in image_b64:
             mime_part, b64_data = image_b64.split(",", 1)
-            mime_type = mime_part.split(":")[1].split(";")[0] if ":" in mime_part else "image/jpeg"
         else:
-            b64_data, mime_type = image_b64, "image/jpeg"
+            b64_data = image_b64
 
-        # Store image temporarily so SerpAPI can fetch it by URL
-        token = str(uuid.uuid4())
-        _temp_images[token] = (b64_data, mime_type, time.time() + 120)
-
-        base_url = RENDER_URL or "https://golden-glam-invoice-app.onrender.com"
-        image_url = f"{base_url}/api/temp-image/{token}"
-
+        # Write to disk so SerpAPI can fetch it (disk is shared across gunicorn workers)
+        token    = str(uuid.uuid4())
+        img_path = TEMP_IMG_DIR / f"tmp_{token}.jpg"
         try:
-            lens_data = _serpapi_get({
-                "engine": "google_lens",
-                "url":    image_url,
-                "hl":     "en",
-                "country": "us",
-            }, SERPAPI_KEY, timeout=25)
-
-            # Extract product name from top visual match title
-            visual_matches = lens_data.get("visual_matches", [])
-            if visual_matches:
-                lens_name = visual_matches[0].get("title", "")
-                print(f"[lens] top match: '{lens_name}'")
-
-            # Collect any Lens results that already have prices
-            results += _lens_results_to_rows(visual_matches)
-            image_used = True
-
+            with open(img_path, 'wb') as fh:
+                fh.write(base64.b64decode(b64_data))
         except Exception as e:
-            print(f"[lens] failed: {e}")
-        finally:
-            _temp_images.pop(token, None)
+            print(f"[lens] failed to write temp image: {e}")
+            img_path = None
+
+        if img_path and img_path.exists():
+            base_url  = RENDER_URL or "https://golden-glam-invoice-app.onrender.com"
+            image_url = f"{base_url}/api/temp-image/{token}"
+            print(f"[lens] serving temp image at {image_url}")
+
+            try:
+                lens_data = _serpapi_get({
+                    "engine":  "google_lens",
+                    "url":     image_url,
+                    "hl":      "en",
+                    "country": "us",
+                }, SERPAPI_KEY, timeout=25)
+
+                visual_matches = lens_data.get("visual_matches", [])
+                if visual_matches:
+                    lens_name = visual_matches[0].get("title", "")
+                    print(f"[lens] top match: '{lens_name}'")
+
+                results += _lens_results_to_rows(visual_matches)
+                print(f"[lens] {len(visual_matches)} visual matches, {len(results)} with prices")
+
+            except Exception as e:
+                print(f"[lens] SerpAPI call failed: {e}")
+            finally:
+                try: img_path.unlink()
+                except Exception: pass
 
     # ── Step 2: Determine Shopping query ──────────────────────────────────────
     # Priority: user-typed text > lens-identified name > SKU
     shopping_query = product_text or lens_name or sku
     if not shopping_query:
         if image_used:
+            # Lens ran but couldn't identify — search generically for furniture
+            shopping_query = "furniture home decor"
+            print("[shopping] Lens returned no name, falling back to generic search")
+        else:
             return jsonify({"ok": False,
-                "error": "Could not identify product from image. Please type the product name or SKU below."}), 400
-        return jsonify({"ok": False,
-            "error": "Please provide a product name, SKU, or upload an image."}), 400
+                "error": "Please provide a product name, SKU, or upload an image."}), 400
 
     if sku and sku not in shopping_query:
         shopping_query = f"{shopping_query} {sku}"
