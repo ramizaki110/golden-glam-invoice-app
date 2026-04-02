@@ -1453,11 +1453,21 @@ function _renderPricingTable(results, data){
   const title = document.getElementById('pricing-table-title');
   title.textContent = `Competitor prices — ${results.length} result${results.length!==1?'s':''} found`;
 
+  // Auto-detect outliers: uncheck prices outside 0.35x – 2.5x of the median
+  const allPrices = results.map(r => r.price||0).filter(p => p > 0).sort((a,b)=>a-b);
+  const median    = allPrices[Math.floor(allPrices.length/2)] || 0;
+  const isOutlier = p => median > 0 && (p < median * 0.35 || p > median * 2.5);
+
   document.getElementById('pricing-table-body').innerHTML = `
     <table style="width:100%;border-collapse:collapse;font-size:12.5px">
       <thead>
         <tr style="background:#f5f2ef">
-          <th style="padding:6px 8px;text-align:center;font-weight:600;color:var(--dark)" title="Uncheck to exclude from price range">✓</th>
+          <th style="padding:6px 10px;text-align:center">
+            <input type="checkbox" id="pricing-select-all" checked
+              title="Select / deselect all"
+              style="width:15px;height:15px;cursor:pointer;accent-color:var(--gold)"
+              onchange="toggleAllPricing(this.checked)">
+          </th>
           <th style="padding:6px 8px;text-align:left;font-weight:600;color:var(--dark)">Photo</th>
           <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--dark)">Retailer</th>
           <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--dark)">Product</th>
@@ -1467,29 +1477,46 @@ function _renderPricingTable(results, data){
       </thead>
       <tbody>
         ${results.map((r,i) => {
-          const badge = r.reputable ? '<span style="font-size:9px;background:#f0ebe1;color:#b8963e;border-radius:3px;padding:1px 4px;margin-left:4px;font-weight:600">★</span>' : '';
-          const thumb = r.thumbnail
+          const outlier   = isOutlier(r.price||0);
+          const badge     = r.reputable ? '<span style="font-size:9px;background:#f0ebe1;color:#b8963e;border-radius:3px;padding:1px 4px;margin-left:4px;font-weight:600">★</span>' : '';
+          const outlierBadge = outlier ? '<span style="font-size:9px;background:#fdecea;color:#c0392b;border-radius:3px;padding:1px 4px;margin-left:4px">outlier</span>' : '';
+          const thumb     = r.thumbnail
             ? `<img src="${r.thumbnail}" style="width:44px;height:44px;object-fit:cover;border-radius:4px;border:1px solid var(--border)" onerror="this.style.display='none'">`
             : '<div style="width:44px;height:44px;background:#f5f2ef;border-radius:4px"></div>';
-          const link = r.url ? `<a href="${r.url}" target="_blank" rel="noopener" style="color:var(--gold);text-decoration:none;font-weight:600;font-size:12px">Open →</a>` : '—';
-          const pc = r.price===data.floor?'#2d6a4f':r.price===data.ceiling?'#6b4c3b':'var(--dark)';
-          const ps = r.price ? '$'+r.price.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}) : 'N/A';
-          return `<tr style="border-top:1px solid var(--border);background:${i%2===0?'#fff':'#fdfcfb'}" data-idx="${i}">
+          const link      = r.url ? `<a href="${r.url}" target="_blank" rel="noopener" style="color:var(--gold);text-decoration:none;font-weight:600;font-size:12px">Open →</a>` : '—';
+          const checked   = !outlier;
+          const rowBg     = outlier ? '#fffaf9' : (i%2===0?'#fff':'#fdfcfb');
+          const pc        = r.price===data.floor?'#2d6a4f':r.price===data.ceiling?'#6b4c3b':'var(--dark)';
+          const ps        = r.price ? '$'+r.price.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}) : 'N/A';
+          return `<tr style="border-top:1px solid var(--border);background:${rowBg};${outlier?'opacity:0.65':''}" data-idx="${i}">
             <td style="padding:6px 10px;text-align:center">
-              <input type="checkbox" checked class="pricing-row-check" data-idx="${i}"
+              <input type="checkbox" ${checked?'checked':''} class="pricing-row-check" data-idx="${i}"
                 style="width:15px;height:15px;cursor:pointer;accent-color:var(--gold)"
                 onchange="recalcPricing()">
             </td>
             <td style="padding:6px 8px">${thumb}</td>
-            <td style="padding:8px 10px;font-weight:600;color:var(--dark);white-space:nowrap">${r.retailer||'—'}${badge}</td>
-            <td style="padding:8px 10px;color:var(--dark);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.title||'').replace(/"/g,"'")}">${(r.title||'').substring(0,48)}${(r.title||'').length>48?'…':''}</td>
+            <td style="padding:8px 10px;font-weight:600;color:var(--dark)">${r.retailer||'—'}${badge}${outlierBadge}</td>
+            <td style="padding:8px 10px;color:var(--dark);min-width:160px;white-space:normal;line-height:1.4">${r.title||'View product'}</td>
             <td style="padding:8px 10px;text-align:right;font-weight:700;font-size:14px;color:${pc}" class="price-cell" data-price="${r.price||0}">${ps}</td>
             <td style="padding:8px 10px;text-align:center">${link}</td>
           </tr>`;
         }).join('')}
       </tbody>
     </table>
-    <div style="font-size:11px;color:var(--mid);margin-top:6px">★ = reputable retailer &nbsp;·&nbsp; <span style="color:#2d6a4f">Green</span> = lowest &nbsp;·&nbsp; <span style="color:#6b4c3b">Brown</span> = highest &nbsp;·&nbsp; Uncheck rows to exclude from price range</div>`;
+    <div style="display:flex;align-items:center;gap:12px;margin-top:10px;flex-wrap:wrap">
+      <button onclick="recalcPricing()" class="btn" style="background:var(--gold);color:#fff;border:none;padding:7px 18px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">
+        ↻ Compare Selected
+      </button>
+      <span style="font-size:11px;color:var(--mid)">★ = reputable retailer &nbsp;·&nbsp; <span style="color:#2d6a4f">Green</span> = lowest &nbsp;·&nbsp; <span style="color:#6b4c3b">Brown</span> = highest &nbsp;·&nbsp; Outliers auto-unchecked</span>
+    </div>`;
+
+  // Run initial calculation with outliers excluded
+  recalcPricing();
+}
+
+function toggleAllPricing(checked){
+  document.querySelectorAll('.pricing-row-check').forEach(cb => cb.checked = checked);
+  recalcPricing();
 }
 
 function recalcPricing(){
@@ -1498,23 +1525,38 @@ function recalcPricing(){
   checks.forEach(cb => {
     if(cb.checked){
       const row = cb.closest('tr');
-      const p = parseFloat(row.querySelector('.price-cell').dataset.price);
+      const p   = parseFloat(row.querySelector('.price-cell').dataset.price);
       if(p > 0) prices.push(p);
     }
   });
   if(!prices.length) return;
+
   const floor = Math.min(...prices);
   const ceil  = Math.max(...prices);
   const avg   = prices.reduce((a,b)=>a+b,0)/prices.length;
   const sugg  = Math.round(avg*1.05/5)*5;
   const fmt   = n => '$'+n.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
+
   document.getElementById('pricing-floor').textContent     = fmt(floor);
   document.getElementById('pricing-ceiling').textContent   = fmt(ceil);
   document.getElementById('pricing-suggested').textContent = fmt(sugg);
-  // Update row colors
+
+  // Update select-all checkbox state
+  const total   = document.querySelectorAll('.pricing-row-check').length;
+  const checked = document.querySelectorAll('.pricing-row-check:checked').length;
+  const selAll  = document.getElementById('pricing-select-all');
+  if(selAll) selAll.checked = checked === total;
+
+  // Update price cell colors
   document.querySelectorAll('.price-cell').forEach(cell => {
     const p = parseFloat(cell.dataset.price);
-    cell.style.color = p===floor?'#2d6a4f':p===ceil?'#6b4c3b':'var(--dark)';
+    const row = cell.closest('tr');
+    const cb  = row.querySelector('.pricing-row-check');
+    if(cb && cb.checked){
+      cell.style.color = p===floor?'#2d6a4f':p===ceil?'#6b4c3b':'var(--dark)';
+    } else {
+      cell.style.color = 'var(--mid)';
+    }
   });
 }
 
