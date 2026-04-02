@@ -571,7 +571,7 @@ def _price_check_inner():
                         lens_name = f"{lens_name} {detected_color}"
 
                     print(f"[lens] consensus words: {consensus_words[:3]}")
-                    print(f"[lens] identified: '{lens_name}'")
+                    print(f"[lens] identified: '{lens_name}' (used only if no text provided)")
                 results += _lens_results_to_rows(visual_matches)
                 print(f"[lens] {len(visual_matches)} visual matches")
             except Exception as e:
@@ -582,7 +582,8 @@ def _price_check_inner():
             print("[lens] skipping Lens — no image URL available")
 
     # ── Step 2: Determine Shopping query ──────────────────────────────────────
-    # Priority: user-typed text > lens-identified name > SKU
+    # If user typed a name — ALWAYS use that, never override with Lens.
+    # Lens identification is unreliable; typed text is authoritative.
     shopping_query = product_text or lens_name or sku
     if not shopping_query:
         if image_used:

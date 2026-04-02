@@ -390,9 +390,13 @@
         <label>Delivery ZIP code <span style="font-size:10px;font-weight:400;color:var(--mid)">(for shipping estimates)</span></label>
         <input id="pricing-zip" value="30338" placeholder="e.g. 30338">
       </div>
-      <div class="field" style="display:flex;align-items:flex-end">
-        <button class="btn btn-gold" style="width:100%;font-size:13px;padding:9px" onclick="runPricingSearch()">🔍 Search competitor prices</button>
+      <div class="field">
+        <label>My cost price (from vendor) <span style="font-size:10px;font-weight:400;color:var(--mid)">(optional — for profit calc)</span></label>
+        <input id="pricing-cost" type="number" min="0" step="0.01" placeholder="e.g. 450.00" oninput="recalcProfit()">
       </div>
+    </div>
+    <div style="margin-top:8px">
+      <button class="btn btn-gold" style="width:100%;font-size:13px;padding:9px" onclick="runPricingSearch()">🔍 Search competitor prices &amp; delivery estimate</button>
     </div>
   </div>
 
@@ -421,6 +425,35 @@
         <div id="pricing-ceiling" style="font-size:26px;font-weight:700;color:#6b4c3b">—</div>
         <div style="font-size:11px;color:var(--mid)">Highest found</div>
       </div>
+    </div>
+
+    <!-- Profit analysis card (shown when cost is entered) -->
+    <div id="pricing-profit-card" class="card" style="display:none;margin-bottom:1rem">
+      <div class="card-title">💰 Your Profit Analysis</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;text-align:center">
+        <div>
+          <div style="font-size:10px;font-weight:600;color:var(--mid);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">My Cost</div>
+          <div id="profit-cost" style="font-size:20px;font-weight:700;color:var(--dark)">—</div>
+        </div>
+        <div>
+          <div style="font-size:10px;font-weight:600;color:var(--mid);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Suggested Retail</div>
+          <div id="profit-retail" style="font-size:20px;font-weight:700;color:var(--gold)">—</div>
+        </div>
+        <div>
+          <div style="font-size:10px;font-weight:600;color:var(--mid);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Gross Profit</div>
+          <div id="profit-gp" style="font-size:20px;font-weight:700;color:#2d6a4f">—</div>
+        </div>
+        <div>
+          <div style="font-size:10px;font-weight:600;color:var(--mid);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Gross Margin</div>
+          <div id="profit-gm" style="font-size:20px;font-weight:700;color:#2d6a4f">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Delivery estimate card -->
+    <div id="pricing-delivery-card" class="card" style="display:none;margin-bottom:1rem">
+      <div class="card-title">🚚 Delivery Estimates to <span id="delivery-zip-label"></span></div>
+      <div id="pricing-delivery-body"></div>
     </div>
 
     <!-- Competitor table -->
@@ -1515,6 +1548,71 @@ function _renderPricingTable(results, data){
   recalcPricing();
 }
 
+async function fetchDeliveryEstimate(productName, zip){
+  const card  = document.getElementById('pricing-delivery-card');
+  const body  = document.getElementById('pricing-delivery-body');
+  const label = document.getElementById('delivery-zip-label');
+  if(!card || !body) return;
+  label.textContent = zip;
+  card.style.display = 'block';
+  body.innerHTML = '<div style="color:var(--mid);font-size:13px;padding:8px 0">🔍 Searching for delivery costs...</div>';
+
+  try {
+    const res  = await fetch('/api/delivery-estimate', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({product: productName, zip})
+    });
+    const data = await res.json();
+    if(!data.ok || !data.results || data.results.length === 0){
+      body.innerHTML = '<div style="color:var(--mid);font-size:13px;padding:8px 0">No delivery pricing found. Contact retailers directly for shipping quotes to ' + zip + '.</div>';
+      return;
+    }
+    body.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+        <thead>
+          <tr style="background:#f5f2ef">
+            <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--dark)">Retailer</th>
+            <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--dark)">Product</th>
+            <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--dark)">Shipping Info</th>
+            <th style="padding:8px 10px;text-align:center;font-weight:600;color:var(--dark)">Link</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${data.results.map((r,i) => `
+            <tr style="border-top:1px solid var(--border);background:${i%2===0?'#fff':'#fdfcfb'}">
+              <td style="padding:8px 10px;font-weight:600;color:var(--dark)">${r.retailer||'—'}</td>
+              <td style="padding:8px 10px;color:var(--dark);max-width:200px;white-space:normal;line-height:1.4">${r.product||''}</td>
+              <td style="padding:8px 10px;color:#2d6a4f;font-weight:500">${r.shipping||'—'}</td>
+              <td style="padding:8px 10px;text-align:center">${r.url?`<a href="${r.url}" target="_blank" rel="noopener" style="color:var(--gold);text-decoration:none;font-weight:600;font-size:12px">Open →</a>`:'—'}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      <div style="font-size:11px;color:var(--mid);margin-top:6px">Delivery costs shown are as listed by retailers — verify directly before quoting clients</div>`;
+  } catch(e) {
+    body.innerHTML = '<div style="color:var(--mid);font-size:13px;padding:8px 0">Could not fetch delivery estimates.</div>';
+  }
+}
+
+function recalcProfit(){
+  const costInput = document.getElementById('pricing-cost');
+  const cost      = parseFloat(costInput ? costInput.value : '') || 0;
+  const retailEl  = document.getElementById('pricing-suggested');
+  const retail    = parseFloat((retailEl.textContent||'').replace(/[^0-9.]/g,'')) || 0;
+  const card      = document.getElementById('pricing-profit-card');
+  if(!cost || !retail){ if(card) card.style.display = 'none'; return; }
+  const fmt  = n => '$'+n.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
+  const gp   = retail - cost;
+  const gm   = (gp / retail) * 100;
+  document.getElementById('profit-cost').textContent   = fmt(cost);
+  document.getElementById('profit-retail').textContent = fmt(retail);
+  document.getElementById('profit-gp').textContent     = fmt(gp);
+  document.getElementById('profit-gm').textContent     = gm.toFixed(1) + '%';
+  document.getElementById('profit-gp').style.color     = gp >= 0 ? '#2d6a4f' : '#c0392b';
+  document.getElementById('profit-gm').style.color     = gm >= 0 ? '#2d6a4f' : '#c0392b';
+  if(card) card.style.display = 'block';
+}
+
 function toggleAllPricing(checked){
   document.querySelectorAll('.pricing-row-check').forEach(cb => cb.checked = checked);
   recalcPricing();
@@ -1575,6 +1673,9 @@ function recalcPricing(){
       cell.style.textDecoration = 'line-through';
     }
   });
+
+  // Update profit analysis if cost is filled in
+  recalcProfit();
 }
 
 async function runPricingSearch(){
@@ -1618,11 +1719,23 @@ async function runPricingSearch(){
       return;
     }
 
-    // Identified product — show lens name if available, else query used
+    // Identified product — show lens name + pre-fill product field if it was empty
     const identifiedLabel = data.lens_name || data.identified_product;
+    const productField    = document.getElementById('pricing-product');
+    if(data.lens_name && !productField.value.trim()){
+      // Pre-fill so user can correct and re-search if wrong
+      productField.value = data.lens_name;
+      productField.style.border = '2px solid var(--gold)';
+      setTimeout(() => { productField.style.border = ''; }, 3000);
+    }
     if(identifiedLabel){
       const prefix = data.lens_name ? '🔍 Google Lens identified: ' : '🔎 Searched for: ';
-      document.getElementById('pricing-identified-text').textContent = prefix + identifiedLabel;
+      const identText = document.getElementById('pricing-identified-text');
+      identText.innerHTML = `<span>${prefix}<strong>${identifiedLabel}</strong></span>
+        <span style="margin-left:12px;font-size:11px;color:var(--mid)">
+          Wrong? Edit the product name above and click
+          <button onclick="runPricingSearch()" style="background:var(--gold);color:#fff;border:none;padding:2px 8px;border-radius:4px;font-size:11px;cursor:pointer;font-weight:600">Re-search</button>
+        </span>`;
       document.getElementById('pricing-identified').style.display = 'block';
     } else {
       document.getElementById('pricing-identified').style.display = 'none';
@@ -1632,14 +1745,18 @@ async function runPricingSearch(){
     const results = data.results || [];
     window._pricingResults = results;
     window._pricingData    = data;
+    document.getElementById('pricing-results').style.display = 'block';
     _renderPricingTable(results, data);
-
 
     if(data.query_used){
       document.getElementById('pricing-query-info').textContent = `Search query: "${data.query_used}"`;
     }
 
-    document.getElementById('pricing-results').style.display = 'block';
+    // Trigger delivery estimate in background
+    const identifiedName = data.lens_name || data.identified_product || product;
+    if(identifiedName && zip){
+      fetchDeliveryEstimate(identifiedName, zip);
+    }
 
   } catch(err) {
     clearInterval(interval);
