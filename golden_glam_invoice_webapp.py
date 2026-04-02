@@ -31,17 +31,18 @@ _bucket_ensured = False
 
 def _ensure_bucket():
     global _bucket_ensured
-    if _bucket_ensured or not SUPABASE_URL or not SUPABASE_KEY:
+    if _bucket_ensured or not SUPABASE_URL or not _storage_key():
         return
     try:
+        key  = _storage_key()
         body = json.dumps({"id": STORAGE_BUCKET, "name": STORAGE_BUCKET, "public": True}).encode()
         req  = urllib.request.Request(
             f"{SUPABASE_URL}/storage/v1/bucket",
             data=body,
             headers={
-                "apikey": SUPABASE_KEY,
-                "Authorization": f"Bearer {SUPABASE_KEY}",
-                "Content-Type": "application/json",
+                "apikey":        key,
+                "Authorization": f"Bearer {key}",
+                "Content-Type":  "application/json",
             },
             method="POST"
         )
@@ -52,44 +53,52 @@ def _ensure_bucket():
     _bucket_ensured = True
 
 
+def _storage_key():
+    # Service key bypasses RLS — required for storage write operations
+    return SUPABASE_SERVICE_KEY or SUPABASE_KEY
+
+
 def _upload_temp_image(img_bytes: bytes):
-    if not SUPABASE_URL or not SUPABASE_KEY:
+    if not SUPABASE_URL or not _storage_key():
+        print("[storage] no Supabase credentials available")
         return None, None
     _ensure_bucket()
     filename = f"tmp_{uuid.uuid4().hex}.jpg"
     try:
+        key = _storage_key()
         req = urllib.request.Request(
             f"{SUPABASE_URL}/storage/v1/object/{STORAGE_BUCKET}/{filename}",
             data=img_bytes,
             headers={
-                "apikey": SUPABASE_KEY,
-                "Authorization": f"Bearer {SUPABASE_KEY}",
-                "Content-Type": "image/jpeg",
+                "apikey":        key,
+                "Authorization": f"Bearer {key}",
+                "Content-Type":  "image/jpeg",
                 "Cache-Control": "no-cache",
             },
             method="POST"
         )
         urllib.request.urlopen(req, timeout=10)
         public_url = f"{SUPABASE_URL}/storage/v1/object/public/{STORAGE_BUCKET}/{filename}"
-        print(f"[storage] uploaded: {filename}")
+        print(f"[storage] uploaded OK: {filename}")
         return public_url, filename
     except Exception as e:
-        print(f"[storage] upload failed: {e}")
+        print(f"[storage] upload FAILED: {e}")
         return None, None
 
 
 def _delete_temp_image(filename: str):
-    if not SUPABASE_URL or not SUPABASE_KEY or not filename:
+    if not SUPABASE_URL or not _storage_key() or not filename:
         return
     try:
+        key  = _storage_key()
         body = json.dumps({"prefixes": [filename]}).encode()
         req  = urllib.request.Request(
             f"{SUPABASE_URL}/storage/v1/object/{STORAGE_BUCKET}",
             data=body,
             headers={
-                "apikey": SUPABASE_KEY,
-                "Authorization": f"Bearer {SUPABASE_KEY}",
-                "Content-Type": "application/json",
+                "apikey":        key,
+                "Authorization": f"Bearer {key}",
+                "Content-Type":  "application/json",
             },
             method="DELETE"
         )
@@ -248,8 +257,9 @@ def generate_from_summary(summary_text: str) -> tuple[Path, Path]:
 
 # ── Supabase ───────────────────────────────────────────────────────────────────
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+SUPABASE_URL         = os.environ.get("SUPABASE_URL", "").rstrip("/")
+SUPABASE_KEY         = os.environ.get("SUPABASE_KEY", "")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 TABLE        = "gg_data"
 ROW_KEY      = "main"
 EMPTY_DATA   = {"clients": [], "library": [], "vendors": [], "invoices": []}
