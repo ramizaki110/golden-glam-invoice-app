@@ -442,7 +442,7 @@
   <!-- Error -->
   <div id="pricing-error" style="display:none" class="card">
     <div style="color:var(--danger);font-size:13px" id="pricing-error-msg"></div>
-    
+    <div style="font-size:12px;color:var(--mid);margin-top:8px">Make sure <strong>GOOGLE_SEARCH_API_KEY</strong> and <strong>GOOGLE_SEARCH_CX</strong> are set in your Render environment variables.</div>
   </div>
 </div>
 
@@ -1384,37 +1384,20 @@ function handlePricingDrop(e){
 
 function handlePricingFile(file){
   if(!file) return;
-  window._pricingBlob = file;
   const reader = new FileReader();
   reader.onload = (e) => {
     const dataUrl = e.target.result;
-    // Compress image to max 768px and 0.75 quality before sending to API
-    // This prevents Haiku from failing on large images (phones take 4-8MB photos)
-    const img = new Image();
-    img.onload = () => {
-      const MAX = 768;
-      let w = img.width, h = img.height;
-      if(w > MAX || h > MAX){
-        if(w > h){ h = Math.round(h * MAX / w); w = MAX; }
-        else      { w = Math.round(w * MAX / h); h = MAX; }
-      }
-      const cv = document.createElement('canvas');
-      cv.width = w; cv.height = h;
-      cv.getContext('2d').drawImage(img, 0, 0, w, h);
-      const compressed = cv.toDataURL('image/jpeg', 0.75);
-      _pricingImageB64 = compressed.split(',')[1];
-      const kb = Math.round(_pricingImageB64.length * 0.75 / 1024);
-      console.log(`[pricing] image compressed to ${w}x${h}, ~${kb}KB`);
-
-      const preview = document.getElementById('pricing-img-preview');
-      preview.src = compressed;
-      preview.style.display = 'block';
-      document.getElementById('pricing-drop-label').style.display = 'none';
-      document.getElementById('pricing-img-clear').style.display = 'block';
-      document.getElementById('pricing-drop-zone').style.borderColor = 'var(--gold)';
-      document.getElementById('pricing-lens-btn').style.display = 'inline-block';
-    };
-    img.src = dataUrl;
+    _pricingImageB64 = dataUrl.split(',')[1];
+    const preview = document.getElementById('pricing-img-preview');
+    preview.src = dataUrl;
+    preview.style.display = 'block';
+    document.getElementById('pricing-drop-label').style.display = 'none';
+    document.getElementById('pricing-img-clear').style.display = 'block';
+    document.getElementById('pricing-drop-zone').style.borderColor = 'var(--gold)';
+    // Show Google Lens button
+    document.getElementById('pricing-lens-btn').style.display = 'inline-block';
+    // Store blob URL for Lens upload
+    window._pricingBlob = file;
   };
   reader.readAsDataURL(file);
 }
@@ -1466,9 +1449,9 @@ async function runPricingSearch(){
   document.getElementById('pricing-loading').style.display = 'block';
 
   const msgs = [
-    _pricingImageB64 ? '🤖 Identifying product from image...' : '🔍 Searching competitor prices...',
-    '📦 Scanning US retailers...',
-    '💰 Extracting prices...',
+    _pricingImageB64 ? '🔍 Running Google Lens visual search...' : '🔍 Searching competitor prices...',
+    '🛍 Scanning Google Shopping results...',
+    '💰 Collecting prices from retailers...',
     '📊 Calculating price range...'
   ];
   let mi = 0;
@@ -1491,9 +1474,11 @@ async function runPricingSearch(){
       return;
     }
 
-    // Identified product
-    if(data.identified_product && _pricingImageB64){
-      document.getElementById('pricing-identified-text').textContent = data.identified_product;
+    // Identified product — show lens name if available, else query used
+    const identifiedLabel = data.lens_name || data.identified_product;
+    if(identifiedLabel){
+      const prefix = data.lens_name ? '🔍 Google Lens identified: ' : '🔎 Searched for: ';
+      document.getElementById('pricing-identified-text').textContent = prefix + identifiedLabel;
       document.getElementById('pricing-identified').style.display = 'block';
     } else {
       document.getElementById('pricing-identified').style.display = 'none';
@@ -1512,11 +1497,12 @@ async function runPricingSearch(){
     if(results.length === 0){
       document.getElementById('pricing-table-body').innerHTML = '<div style="color:var(--mid);font-size:13px;padding:8px 0">No prices found. Try adding more detail to the product name or SKU and search again.</div>';
     } else {
-      // Keep backend sort order (reputable retailers first, then by price)
+      // Backend already sorted: reputable retailers first, then by price
       document.getElementById('pricing-table-body').innerHTML = `
         <table style="width:100%;border-collapse:collapse;font-size:12.5px">
           <thead>
             <tr style="background:#f5f2ef">
+              <th style="padding:6px 8px;text-align:left;font-weight:600;color:var(--dark)">Photo</th>
               <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--dark)">Retailer</th>
               <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--dark)">Product</th>
               <th style="padding:8px 10px;text-align:right;font-weight:600;color:var(--dark)">Price</th>
@@ -1525,23 +1511,26 @@ async function runPricingSearch(){
           </thead>
           <tbody>
             ${results.map((r,i) => {
-              const reputableBadge = r.reputable ? '<span style="font-size:9px;background:#f0ebe1;color:#b8963e;border-radius:3px;padding:1px 4px;margin-left:4px;font-weight:600">★</span>' : '';
-              const linkCell = r.url
-                ? `<a href="${r.url}" target="_blank" rel="noopener" style="color:var(--gold);text-decoration:none;font-weight:500;font-size:11px">${r.reachable===false?'⚠ Check link':'Open →'}</a>`
+              const badge = r.reputable ? '<span style="font-size:9px;background:#f0ebe1;color:#b8963e;border-radius:3px;padding:1px 4px;margin-left:4px;font-weight:600">★</span>' : '';
+              const thumb = r.thumbnail
+                ? `<img src="${r.thumbnail}" style="width:44px;height:44px;object-fit:cover;border-radius:4px;border:1px solid var(--border)" onerror="this.style.display='none'">`
+                : '<div style="width:44px;height:44px;background:#f5f2ef;border-radius:4px"></div>';
+              const link = r.url
+                ? `<a href="${r.url}" target="_blank" rel="noopener" style="color:var(--gold);text-decoration:none;font-weight:600;font-size:12px">Open →</a>`
                 : '—';
-              return `
-              <tr style="border-top:1px solid var(--border);background:${i%2===0?'#fff':'#fdfcfb'}">
-                <td style="padding:8px 10px;font-weight:600;color:var(--dark)">${r.retailer||'—'}${reputableBadge}</td>
-                <td style="padding:8px 10px;color:var(--dark);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.title||'').replace(/"/g,"'")}">
-                  ${(r.title||'View product').substring(0,60)}${(r.title||'').length>60?'…':''}
-                </td>
-                <td style="padding:8px 10px;text-align:right;font-weight:700;font-size:14px;color:${r.price===data.floor?'#2d6a4f':r.price===data.ceiling?'#6b4c3b':'var(--dark)'}">${r.price?'$'+r.price.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}):'N/A'}</td>
-                <td style="padding:8px 10px;text-align:center">${linkCell}</td>
+              const pc = r.price===data.floor?'#2d6a4f':r.price===data.ceiling?'#6b4c3b':'var(--dark)';
+              const ps = r.price ? '$'+r.price.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}) : 'N/A';
+              return `<tr style="border-top:1px solid var(--border);background:${i%2===0?'#fff':'#fdfcfb'}">
+                <td style="padding:6px 8px">${thumb}</td>
+                <td style="padding:8px 10px;font-weight:600;color:var(--dark);white-space:nowrap">${r.retailer||'—'}${badge}</td>
+                <td style="padding:8px 10px;color:var(--dark);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.title||'').replace(/"/g,"'")}">${(r.title||'View product').substring(0,50)}${(r.title||'').length>50?'…':''}</td>
+                <td style="padding:8px 10px;text-align:right;font-weight:700;font-size:14px;color:${pc}">${ps}</td>
+                <td style="padding:8px 10px;text-align:center">${link}</td>
               </tr>`;
             }).join('')}
           </tbody>
         </table>
-        <div style="font-size:11px;color:var(--mid);margin-top:6px">★ = major furniture retailer</div>`;
+        <div style="font-size:11px;color:var(--mid);margin-top:6px">★ = major furniture retailer &nbsp;·&nbsp; <span style="color:#2d6a4f">Green</span> = lowest &nbsp;·&nbsp; <span style="color:#6b4c3b">Brown</span> = highest</div>`;
     }
 
     if(data.query_used){
