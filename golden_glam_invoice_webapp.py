@@ -24,21 +24,78 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32MB max upload
 
-# ── Temp image store for SerpAPI Lens (disk-based, shared across gunicorn workers) ──
-TEMP_IMG_DIR = OUTPUT_DIR  # reuse generated_invoices dir for temp images
+# ── Temp image hosting via Supabase Storage ───────────────────────────────────
+STORAGE_BUCKET = "temp-images"
+_bucket_ensured = False
 
 
-@app.get("/api/temp-image/<token>")
-def serve_temp_image(token: str):
-    # Security: only allow safe alphanumeric tokens (UUID format)
-    if not re.match(r'^[a-f0-9-]{36}$', token):
-        return "Invalid token", 400
-    img_path = TEMP_IMG_DIR / f"tmp_{token}.jpg"
-    if not img_path.exists():
-        return "Not found", 404
-    with open(img_path, 'rb') as f:
-        data = f.read()
-    return data, 200, {"Content-Type": "image/jpeg", "Cache-Control": "no-store"}
+def _ensure_bucket():
+    global _bucket_ensured
+    if _bucket_ensured or not SUPABASE_URL or not SUPABASE_KEY:
+        return
+    try:
+        body = json.dumps({"id": STORAGE_BUCKET, "name": STORAGE_BUCKET, "public": True}).encode()
+        req  = urllib.request.Request(
+            f"{SUPABASE_URL}/storage/v1/bucket",
+            data=body,
+            headers={
+                "apikey": SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type": "application/json",
+            },
+            method="POST"
+        )
+        urllib.request.urlopen(req, timeout=8)
+    except Exception as e:
+        if "409" not in str(e) and "already exists" not in str(e).lower():
+            print(f"[storage] bucket create warning: {e}")
+    _bucket_ensured = True
+
+
+def _upload_temp_image(img_bytes: bytes):
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return None, None
+    _ensure_bucket()
+    filename = f"tmp_{uuid.uuid4().hex}.jpg"
+    try:
+        req = urllib.request.Request(
+            f"{SUPABASE_URL}/storage/v1/object/{STORAGE_BUCKET}/{filename}",
+            data=img_bytes,
+            headers={
+                "apikey": SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type": "image/jpeg",
+                "Cache-Control": "no-cache",
+            },
+            method="POST"
+        )
+        urllib.request.urlopen(req, timeout=10)
+        public_url = f"{SUPABASE_URL}/storage/v1/object/public/{STORAGE_BUCKET}/{filename}"
+        print(f"[storage] uploaded: {filename}")
+        return public_url, filename
+    except Exception as e:
+        print(f"[storage] upload failed: {e}")
+        return None, None
+
+
+def _delete_temp_image(filename: str):
+    if not SUPABASE_URL or not SUPABASE_KEY or not filename:
+        return
+    try:
+        body = json.dumps({"prefixes": [filename]}).encode()
+        req  = urllib.request.Request(
+            f"{SUPABASE_URL}/storage/v1/object/{STORAGE_BUCKET}",
+            data=body,
+            headers={
+                "apikey": SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type": "application/json",
+            },
+            method="DELETE"
+        )
+        urllib.request.urlopen(req, timeout=8)
+    except Exception as e:
+        print(f"[storage] delete failed: {e}")
 
 
 # ── Invoice parsing ────────────────────────────────────────────────────────────
@@ -395,31 +452,27 @@ def _price_check_inner():
     lens_name    = ""            # name extracted from Lens top result
     image_used   = False
 
-    # ── Step 1: Google Lens (image search) ────────────────────────────────────
+    # ── Step 1: Google Lens via Supabase Storage (external, no deadlock) ────────
     if image_b64:
-        image_used = True  # mark as image search regardless of Lens outcome
+        image_used = True
 
-        # Decode base64
         if "," in image_b64:
-            mime_part, b64_data = image_b64.split(",", 1)
+            _, b64_data = image_b64.split(",", 1)
         else:
             b64_data = image_b64
 
-        # Write to disk so SerpAPI can fetch it (disk is shared across gunicorn workers)
-        token    = str(uuid.uuid4())
-        img_path = TEMP_IMG_DIR / f"tmp_{token}.jpg"
+        img_bytes = None
         try:
-            with open(img_path, 'wb') as fh:
-                fh.write(base64.b64decode(b64_data))
+            img_bytes = base64.b64decode(b64_data)
         except Exception as e:
-            print(f"[lens] failed to write temp image: {e}")
-            img_path = None
+            print(f"[lens] base64 decode failed: {e}")
 
-        if img_path and img_path.exists():
-            base_url  = RENDER_URL or "https://golden-glam-invoice-app.onrender.com"
-            image_url = f"{base_url}/api/temp-image/{token}"
-            print(f"[lens] serving temp image at {image_url}")
+        image_url     = None
+        temp_filename = None
+        if img_bytes:
+            image_url, temp_filename = _upload_temp_image(img_bytes)
 
+        if image_url:
             try:
                 lens_data = _serpapi_get({
                     "engine":  "google_lens",
@@ -427,20 +480,18 @@ def _price_check_inner():
                     "hl":      "en",
                     "country": "us",
                 }, SERPAPI_KEY, timeout=25)
-
                 visual_matches = lens_data.get("visual_matches", [])
                 if visual_matches:
                     lens_name = visual_matches[0].get("title", "")
                     print(f"[lens] top match: '{lens_name}'")
-
                 results += _lens_results_to_rows(visual_matches)
-                print(f"[lens] {len(visual_matches)} visual matches, {len(results)} with prices")
-
+                print(f"[lens] {len(visual_matches)} visual matches")
             except Exception as e:
                 print(f"[lens] SerpAPI call failed: {e}")
             finally:
-                try: img_path.unlink()
-                except Exception: pass
+                _delete_temp_image(temp_filename)
+        else:
+            print("[lens] skipping Lens — no image URL available")
 
     # ── Step 2: Determine Shopping query ──────────────────────────────────────
     # Priority: user-typed text > lens-identified name > SKU
