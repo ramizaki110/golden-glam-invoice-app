@@ -577,8 +577,7 @@ def _price_check_inner():
                     if detected_color:
                         lens_name = f"{lens_name} {detected_color}"
 
-                    print(f"[lens] consensus words: {consensus_words[:3]}")
-                    print(f"[lens] identified: '{lens_name}' (used only if no text provided)")
+                    print(f"[lens] consensus={consensus_words[:3]} final_name='{lens_name}'")
                 results += _lens_results_to_rows(visual_matches)
                 print(f"[lens] {len(visual_matches)} visual matches")
             except Exception as e:
@@ -600,8 +599,12 @@ def _price_check_inner():
     elif lens_name:
         shopping_query = lens_name
     elif image_used:
-        shopping_query = "furniture home decor"
-        print("[shopping] Lens returned no name, falling back to generic search")
+        # Lens ran but got nothing useful — don't search garbage terms
+        return jsonify({
+            "ok":    False,
+            "error": "Google Lens could not identify this product. Please type the product name or brand in the field above and search again.",
+            "lens_failed": True,
+        }), 400
     else:
         return jsonify({"ok": False,
             "error": "Please provide a product name, SKU, or upload an image."}), 400

@@ -1630,6 +1630,35 @@ async function fetchDeliveryEstimate(productName, zip, urls=[], address=''){
   }
 }
 
+function overridePricingSearch(){
+  // Focus and select the product name field so user can edit immediately
+  const pf = document.getElementById('pricing-product');
+  pf.focus();
+  pf.select();
+  pf.style.border = '2px solid var(--gold)';
+  pf.style.background = '#fffbf0';
+  // Add Enter key listener to trigger search
+  pf.onkeydown = function(e){
+    if(e.key === 'Enter'){
+      pf.style.border = '';
+      pf.style.background = '';
+      pf.onkeydown = null;
+      runPricingSearch();
+    }
+  };
+  // Scroll up to the field
+  pf.scrollIntoView({behavior:'smooth', block:'center'});
+  // Show hint
+  const hint = document.createElement('div');
+  hint.id = 'override-hint';
+  hint.style.cssText = 'font-size:11px;color:var(--gold);margin-top:4px;font-weight:500';
+  hint.textContent = '✏ Edit the name above then press Enter or click Search';
+  const existing = document.getElementById('override-hint');
+  if(existing) existing.remove();
+  pf.parentNode.appendChild(hint);
+  setTimeout(() => { const h = document.getElementById('override-hint'); if(h) h.remove(); pf.style.border=''; pf.style.background=''; pf.onkeydown=null; }, 8000);
+}
+
 function recalcProfit(){
   const costInput = document.getElementById('pricing-cost');
   const cost      = parseFloat(costInput ? costInput.value : '') || 0;
@@ -1732,10 +1761,15 @@ async function runPricingSearch(){
   document.getElementById('pricing-error').style.display = 'none';
   document.getElementById('pricing-loading').style.display = 'block';
 
-  const msgs = [
-    _pricingImageB64 ? '🔍 Running Google Lens visual search...' : '🔍 Searching competitor prices...',
-    '🛍 Scanning Google Shopping results...',
-    '💰 Collecting prices from retailers...',
+  const msgs = _pricingImageB64 ? [
+    '🔍 Step 1/3: Running Google Lens visual identification...',
+    '🛍 Step 2/3: Searching retailers for identified product...',
+    '💰 Step 3/3: Collecting prices & delivery estimates...',
+    '📊 Calculating price range...'
+  ] : [
+    '🔍 Searching competitor prices...',
+    '🛍 Scanning retailers...',
+    '💰 Collecting prices...',
     '📊 Calculating price range...'
   ];
   let mi = 0;
@@ -1755,6 +1789,13 @@ async function runPricingSearch(){
     if(!data.ok){
       document.getElementById('pricing-error-msg').textContent = data.error || 'Search failed.';
       document.getElementById('pricing-error').style.display = 'block';
+      if(data.lens_failed){
+        // Lens failed — focus the product name field so user can type
+        const pf = document.getElementById('pricing-product');
+        pf.focus();
+        pf.style.border = '2px solid var(--gold)';
+        setTimeout(() => { pf.style.border = ''; }, 4000);
+      }
       return;
     }
 
@@ -1764,22 +1805,26 @@ async function runPricingSearch(){
     const identText    = document.getElementById('pricing-identified-text');
 
     if(typedName){
-      // User typed a name — that's what was searched. Lens result is secondary context.
+      // User typed a name — always authoritative
       let msg = `🔎 Searched for: <strong>${typedName}</strong>`;
       if(data.lens_name && data.lens_name.toLowerCase() !== typedName.toLowerCase()){
-        msg += ` <span style="font-size:11px;color:var(--mid)">(Lens saw: ${data.lens_name})</span>`;
+        msg += ` <span style="font-size:11px;color:var(--mid);margin-left:6px">(Lens saw: ${data.lens_name})</span>`;
       }
+      msg += ` <button onclick="overridePricingSearch()" style="margin-left:10px;background:none;border:1px solid var(--gold);color:var(--gold);padding:2px 8px;border-radius:4px;font-size:11px;cursor:pointer;font-weight:600">✎ Edit &amp; Re-search</button>`;
       identText.innerHTML = msg;
       document.getElementById('pricing-identified').style.display = 'block';
     } else if(data.lens_name){
-      // No typed name — Lens drove the search. Pre-fill so user can correct.
+      // Lens identified — pre-fill field, keep border persistent so user notices
       productField.value = data.lens_name;
       productField.style.border = '2px solid var(--gold)';
-      setTimeout(() => { productField.style.border = ''; }, 3000);
-      identText.innerHTML = `🔍 Google Lens identified: <strong>${data.lens_name}</strong>
-        <span style="margin-left:10px;font-size:11px;color:var(--mid)">Wrong? Edit above and click
-          <button onclick="runPricingSearch()" style="background:var(--gold);color:#fff;border:none;padding:2px 8px;border-radius:4px;font-size:11px;cursor:pointer;font-weight:600">Re-search</button>
-        </span>`;
+      identText.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span>🔍 Google Lens identified: <strong>${data.lens_name}</strong></span>
+          <span style="font-size:11px;color:var(--mid)">Not right?</span>
+          <button onclick="overridePricingSearch()" style="background:var(--gold);color:#fff;border:none;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer;font-weight:600">
+            ✎ Edit name &amp; Re-search
+          </button>
+        </div>`;
       document.getElementById('pricing-identified').style.display = 'block';
     } else {
       document.getElementById('pricing-identified').style.display = 'none';
@@ -1790,10 +1835,19 @@ async function runPricingSearch(){
     window._pricingResults = results;
     window._pricingData    = data;
     document.getElementById('pricing-results').style.display = 'block';
+
+    // Scroll to results
+    document.getElementById('pricing-results').scrollIntoView({behavior:'smooth', block:'start'});
     _renderPricingTable(results, data);
 
     if(data.query_used){
       document.getElementById('pricing-query-info').textContent = `Search query: "${data.query_used}"`;
+    }
+    // Also update the identified card to clearly show what was searched
+    const identCard = document.getElementById('pricing-identified');
+    if(identCard && identCard.style.display !== 'none'){
+      identCard.style.background = '#f9f7f3';
+      identCard.style.borderLeft = '3px solid var(--gold)';
     }
 
     // Trigger delivery estimate in background with checked retailer URLs
