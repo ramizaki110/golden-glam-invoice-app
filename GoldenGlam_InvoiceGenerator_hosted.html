@@ -1624,7 +1624,7 @@ async function fetchDeliveryEstimate(productName, zip, urls=[], address=''){
           }).join('')}
         </tbody>
       </table>
-      <div style="font-size:11px;color:var(--mid);margin-top:6px">Delivery costs shown are as listed by retailers — verify directly before quoting clients</div>`;
+      <div style="font-size:11px;color:var(--mid);margin-top:6px;line-height:1.4">${data.note||''}</div>`;
   } catch(e) {
     body.innerHTML = '<div style="color:var(--mid);font-size:13px;padding:8px 0">Could not fetch delivery estimates.</div>';
   }

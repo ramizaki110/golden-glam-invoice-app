@@ -542,19 +542,26 @@ def _price_check_inner():
                                 word_counts[w] += 1
 
                     # Top word that appears in multiple matches = most reliable identifier
+                def _clean_title(t):
+                    import re as _r
+                    for pat in [
+                        r'\s*[|\-]\s*(wayfair|pottery barn|west elm|perigold|crate.*barrel|restoration hardware|overstock|amazon|target|walmart|houzz).*$',
+                        r"\s*(you'?ll love|shop now|best sellers|on sale|free shipping).*$",
+                    ]:
+                        t = _r.sub(pat, '', t, flags=_r.IGNORECASE).strip()
+                    return t
                     consensus_words = [w for w,c in word_counts.most_common(5) if c >= 2]
                     if consensus_words:
                         # Build query from consensus words + top match title for context
-                        lens_name = visual_matches[0].get("title","")
-                        # If top match doesn't include our most common word, use consensus
+                        lens_name = _clean_title(visual_matches[0].get("title",""))
                         if consensus_words[0] not in lens_name.lower():
-                            # Find a match that has the consensus word
                             for vm in visual_matches[:5]:
-                                if consensus_words[0] in vm.get("title","").lower():
-                                    lens_name = vm.get("title","")
+                                c = _clean_title(vm.get("title",""))
+                                if consensus_words[0] in c.lower():
+                                    lens_name = c
                                     break
                     else:
-                        lens_name = visual_matches[0].get("title","")
+                        lens_name = _clean_title(visual_matches[0].get("title",""))
 
                     # Add color if detectable from matches
                     COLOR_WORDS = ["natural","white","black","brown","grey","gray",
@@ -620,26 +627,24 @@ def _price_check_inner():
 
     # Pass 2: Targeted at reputable furniture retailers to surface Perigold,
     # West Elm, Pottery Barn etc. that may not rank organically
-    TARGETED_SITES = (
-        "site:perigold.com OR site:westelm.com OR site:potterybarn.com OR "
-        "site:crateandbarrel.com OR site:rh.com OR site:cb2.com OR "
-        "site:serenaandlily.com OR site:arhaus.com OR site:luluandgeorgia.com OR "
-        "site:onekingslane.com OR site:laylagrayce.com OR site:2modern.com OR "
-        "site:luxedecor.com OR site:topmodern.com OR site:roomandboard.com"
-    )
-    try:
-        targeted_data = _serpapi_get({
-            "engine": "google_shopping",
-            "q":      f"{shopping_query} ({TARGETED_SITES})",
-            "gl":     "us",
-            "hl":     "en",
-            "num":    "10",
-        }, SERPAPI_KEY, timeout=15)
-        targeted_rows = _shopping_results_to_rows(targeted_data.get("shopping_results", []))
-        results += targeted_rows
-        print(f"[shopping] pass2 (targeted) found {len(targeted_rows)} results")
-    except Exception as e:
-        print(f"[shopping] pass2 failed: {e}")
+    # Pass 2 & 3: Targeted searches at top reputable retailers
+    PREMIUM_SITES  = "site:perigold.com OR site:westelm.com OR site:rh.com OR site:potterybarn.com OR site:crateandbarrel.com OR site:cb2.com OR site:serenaandlily.com OR site:arhaus.com"
+    BOUTIQUE_SITES = "site:topmodern.com OR site:2modern.com OR site:luxedecor.com OR site:luluandgeorgia.com OR site:onekingslane.com OR site:laylagrayce.com OR site:roomandboard.com OR site:burkedecor.com OR site:highfashionhome.com"
+
+    for sites, label in [(PREMIUM_SITES, "premium"), (BOUTIQUE_SITES, "boutique")]:
+        try:
+            td = _serpapi_get({
+                "engine": "google_shopping",
+                "q":      f"{shopping_query} ({sites})",
+                "gl":     "us",
+                "hl":     "en",
+                "num":    "10",
+            }, SERPAPI_KEY, timeout=15)
+            rows = _shopping_results_to_rows(td.get("shopping_results", []))
+            results += rows
+            print(f"[shopping] pass-{label} found {len(rows)} results")
+        except Exception as e:
+            print(f"[shopping] pass-{label} failed: {e}")
 
     # ── Step 4: Deduplicate by URL ────────────────────────────────────────────
     seen, deduped = set(), []
@@ -679,6 +684,9 @@ def _price_check_inner():
     deduped = list(seen_ret.values())
 
     # ── Step 4d: Sort — Lens first, then reputable, then price ───────────────
+    # Remove Walmart — not a reputable furniture source for interior design
+    deduped = [r for r in deduped if "walmart" not in r.get("retailer","").lower()]
+    # Sort: Lens matches first, reputable retailers next, then by price
     deduped.sort(key=lambda r: (r.get("source_type")!="lens", not r.get("reputable",False), r["price"]))
 
     # ── Step 5: Price range ───────────────────────────────────────────────────
@@ -771,104 +779,97 @@ def _delivery_estimate_inner():
     if not product_name:
         return jsonify({"ok": False, "error": "No product name provided"}), 400
 
-    # Use provided address or fall back to zip only
     delivery_addr = address or f"zip {zip_code}"
-    # Extract city/state from address for better search queries
     import re as _re
-    city_state_m = _re.search(r'([A-Za-z ]+),\s*([A-Z]{2})\s+\d{5}', delivery_addr)
-    city_state   = f"{city_state_m.group(1).strip()}, {city_state_m.group(2)}" if city_state_m else zip_code
-    results       = []
+    city_state_m  = _re.search(r'([A-Za-z ]+),\s*([A-Z]{2})\s+\d{5}', delivery_addr)
+    city_state    = f"{city_state_m.group(1).strip()}, {city_state_m.group(2)}" if city_state_m else zip_code
 
-    # Strategy 1: SerpAPI Shopping — search specifically for furniture delivery costs
-    # We search for white glove / threshold delivery which is relevant for furniture
-    queries = [
-        f"{product_name} white glove delivery {city_state}",
-        f"{product_name} shipping cost {city_state} {zip_code}",
-    ]
-    seen = set()
-    for query in queries:
+    results = []
+    seen    = set()
+
+    # Extract retailer names from the URLs passed from frontend
+    retailer_names = []
+    for url in retailer_urls[:8]:
+        if url and "google.com" not in url:
+            domain = urllib.parse.urlparse(url).netloc.replace("www.", "")
+            # Convert domain to readable name
+            name = domain.split(".")[0].replace("-", " ").title()
+            retailer_names.append((name, domain, url))
+
+    # Search per-retailer delivery policy — more accurate than generic product search
+    for ret_name, domain, url in retailer_names[:5]:
+        if domain.lower() in seen:
+            continue
+        query = f"{ret_name} furniture white glove delivery fee {zip_code}"
         try:
-            shop_data = _serpapi_get({
-                "engine": "google_shopping",
+            data = _serpapi_get({
+                "engine": "google",
                 "q":      query,
+                "gl":     "us",
+                "hl":     "en",
+                "num":    "3",
+            }, SERPAPI_KEY, timeout=10)
+            # Look for delivery cost in organic results
+            shipping_info = ""
+            for r in data.get("organic_results", []):
+                snippet = r.get("snippet", "")
+                snip_low = snippet.lower()
+                if any(w in snip_low for w in ["deliver","shipping","freight","white glove"]):
+                    # Extract the relevant part
+                    import re as _re2
+                    m = _re2.search(r"[^.]*(?:deliver|ship|freight|white glove)[^.]{0,120}", snip_low)
+                    if m:
+                        shipping_info = snippet[m.start():m.end()].strip().capitalize()
+                        break
+            if not shipping_info:
+                shipping_info = "Contact retailer for delivery quote"
+            results.append({
+                "retailer": ret_name,
+                "shipping": shipping_info,
+                "url":      url,
+                "reliable": "contact" not in shipping_info.lower(),
+            })
+            seen.add(domain.lower())
+        except Exception as e:
+            print(f"[delivery] {ret_name} query failed: {e}")
+
+    # If no retailer URLs, do a general furniture delivery cost search
+    if not results:
+        try:
+            data = _serpapi_get({
+                "engine": "google_shopping",
+                "q":      f"{product_name} white glove delivery {city_state}",
                 "gl":     "us",
                 "hl":     "en",
                 "num":    "10",
             }, SERPAPI_KEY, timeout=15)
-
-            for it in shop_data.get("shopping_results", []):
-                source = it.get("source", "")
-                if source.lower() in seen:
+            for it in data.get("shopping_results", []):
+                source   = it.get("source", "")
+                if source.lower() in seen or "walmart" in source.lower():
                     continue
-
-                # Get shipping from dedicated delivery field or extensions
-                shipping = it.get("delivery") or ""
-                if not shipping:
-                    for ext in (it.get("extensions") or []):
-                        ext_l = ext.lower()
-                        if any(w in ext_l for w in ["white glove","threshold","room of choice","freight","delivery"]):
-                            shipping = ext
-                            break
-
-                if not shipping:
+                delivery = it.get("delivery") or ""
+                for ext in (it.get("extensions") or []):
+                    if any(w in ext.lower() for w in ["white glove","threshold","freight","room of choice"]):
+                        delivery = ext
+                        break
+                if not delivery:
                     continue
-
-                # Filter out generic "free shipping" claims — these are usually for
-                # small parcel items, not large furniture delivery. Furniture delivery
-                # to a residential address is rarely free and typically $150-$400+.
-                ship_lower = shipping.lower()
-                is_small_parcel_claim = (
-                    ship_lower.strip() in ("free", "free shipping", "free delivery") and
-                    not any(w in ship_lower for w in ["white glove","threshold","room","freight"])
-                )
-                if is_small_parcel_claim:
-                    shipping = f"Standard: {shipping} (verify — may not include furniture delivery surcharge)"
-
                 results.append({
                     "retailer": source,
-                    "shipping": shipping,
-                    "url":      it.get("link", ""),
-                    "reliable": bool(it.get("delivery")),  # True if from dedicated delivery field
+                    "shipping": delivery,
+                    "url":      it.get("link",""),
+                    "reliable": any(w in delivery.lower() for w in ["white glove","threshold","freight"]),
                 })
                 seen.add(source.lower())
         except Exception as e:
-            print(f"[delivery] query '{query[:40]}' failed: {e}")
-
-    # Strategy 2: Scrape product pages for any checked retailers not found above
-    for url in retailer_urls[:4]:
-        if not url or "google.com" in url:
-            continue
-        domain = urllib.parse.urlparse(url).netloc.replace("www.", "")
-        if domain.lower() in seen:
-            continue
-        shipping = _fetch_page_shipping(url, zip_code)
-        if shipping:
-            ship_lower = shipping.lower()
-            # Same filter — flag suspiciously cheap shipping claims
-            if ship_lower.strip() in ("free", "free shipping", "free delivery"):
-                shipping = f"Standard: {shipping} (verify — furniture delivery fees may apply)"
-            results.append({
-                "retailer": domain,
-                "shipping": shipping,
-                "url":      url,
-                "reliable": False,
-            })
-            seen.add(domain.lower())
-
-    if not results:
-        return jsonify({
-            "ok":      True,
-            "results": [],
-            "note":    "No delivery estimates found. Furniture delivery to a residential address typically ranges from $99–$399 for threshold delivery to $199–$499 for white glove (room of choice, assembly included). Verify directly with each retailer.",
-            "address": delivery_addr,
-            "zip":     zip_code,
-        })
+            print(f"[delivery] fallback failed: {e}")
 
     return jsonify({
         "ok":      True,
-        "results": results[:10],
+        "results": results[:8],
         "address": delivery_addr,
         "zip":     zip_code,
+        "note":    "Furniture delivery to a residential address typically ranges $99–$399 (threshold) to $199–$499 (white glove with assembly). Verify exact cost with each retailer.",
     })
 
 
