@@ -364,7 +364,9 @@ def api_delete_photo(key):
 
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
 
+# Reputable retailers — both domains and display names used in Shopping results
 FURNITURE_RETAILERS = {
+    # Domains
     "wayfair.com", "westelm.com", "perigold.com", "potterybarn.com",
     "crateandbarrel.com", "cb2.com", "rh.com", "restorationhardware.com",
     "serenaandlily.com", "article.com", "worldmarket.com", "target.com",
@@ -375,6 +377,22 @@ FURNITURE_RETAILERS = {
     "circafurniture.com", "furniturerow.com", "ethanallen.com",
     "livingspaces.com", "castlery.com", "tuftandneedle.com",
     "onekingslane.com", "highfashionhome.com", "jaysonhome.com",
+    "luluandgeorgia.com", "topmodern.com", "luxedecor.com", "2modern.com",
+    "abccarpet.com", "stashhomefurniture.com", "graysonliving.com",
+    "mcgeeandco.com", "shopatironwood.com", "lauradesignco.com",
+    "laylagrayce.com", "cityhome.com", "fineline.com",
+    # Display names (as returned by Google Shopping source field)
+    "wayfair", "west elm", "pottery barn", "crate and barrel", "cb2",
+    "restoration hardware", "rh", "serena & lily", "serena and lily",
+    "article", "world market", "ballard designs", "arhaus",
+    "room & board", "room and board", "z gallerie", "all modern",
+    "joss & main", "joss and main", "anthropologie", "burke decor",
+    "lumens", "one kings lane", "high fashion home", "jayson home",
+    "lulu and georgia", "topmodern", "luxedecor", "2modern",
+    "abc carpet & home", "abc carpet and home", "stash home furniture",
+    "grayson living", "mcgee & co", "mcgee and co", "layla grayce",
+    "city home", "fine line furniture", "perigold", "hayneedle",
+    "overstock", "target", "ikea", "amazon",
 }
 
 
@@ -410,13 +428,17 @@ def _shopping_results_to_rows(items: list) -> list:
         # Use source name directly — Shopping links often go via Google redirects
         domain    = urllib.parse.urlparse(link).netloc.replace("www.", "") if link else ""
         retailer  = source or domain  # prefer source field
+        # Check reputable against both display name and domain
+        src_lower = source.lower()
+        dom_lower = domain.lower()
+        is_rep    = any(r in src_lower or r in dom_lower for r in FURNITURE_RETAILERS)
         rows.append({
             "retailer":    retailer,
             "price":       price,
             "url":         link,
             "title":       it.get("title", ""),
             "thumbnail":   it.get("thumbnail", ""),
-            "reputable":   any(r in (source.lower() + domain) for r in FURNITURE_RETAILERS),
+            "reputable":   is_rep,
             "source_type": "shopping",
         })
     return rows
@@ -577,20 +599,25 @@ def _price_check_inner():
             seen.add(key)
             deduped.append(r)
 
-    # ── Step 4b: Filter Shopping by relevance to identified product ──────────
+    # ── Step 4b: Filter Shopping by relevance — require specific product word ──
+    STOP_WORDS = {"with","from","that","this","and","for","the","chair",
+                  "table","sofa","bench","desk","lamp","shelf","outdoor",
+                  "indoor","home","decor","set","piece","modern","vintage"}
     if lens_name or product_text:
         ref_name  = (lens_name or product_text).lower()
-        key_words = [w for w in ref_name.split() if len(w) > 3
-                     and w not in ("with","from","that","this","and","for","the")]
+        key_words = [w for w in ref_name.split()
+                     if len(w) > 3 and w not in STOP_WORDS]
         if key_words:
-            filtered = []
+            # Use first specific word (most distinctive, e.g. "portia") as primary filter
+            primary_kw = key_words[0]
+            filtered   = []
             for r in deduped:
                 title_lower = r.get("title","").lower()
                 if r.get("source_type") == "lens":
                     filtered.append(r)
-                elif any(kw in title_lower for kw in key_words[:3]):
+                elif primary_kw in title_lower:
                     filtered.append(r)
-            deduped = filtered if len(filtered) >= 5 else deduped
+            deduped = filtered if len(filtered) >= 3 else deduped
 
     # ── Step 4c: Deduplicate by retailer (keep lowest price per retailer) ────
     seen_ret = {}

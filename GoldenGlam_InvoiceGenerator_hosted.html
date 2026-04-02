@@ -1445,6 +1445,79 @@ function clearPricingImage(){
 
 function _fmt(n){ return n != null ? '$' + n.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}) : '—'; }
 
+function _renderPricingTable(results, data){
+  if(!results || results.length === 0){
+    document.getElementById('pricing-table-body').innerHTML = '<div style="color:var(--mid);font-size:13px;padding:8px 0">No prices found. Try adding more detail to the product name or SKU.</div>';
+    return;
+  }
+  const title = document.getElementById('pricing-table-title');
+  title.textContent = `Competitor prices — ${results.length} result${results.length!==1?'s':''} found`;
+
+  document.getElementById('pricing-table-body').innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+      <thead>
+        <tr style="background:#f5f2ef">
+          <th style="padding:6px 8px;text-align:center;font-weight:600;color:var(--dark)" title="Uncheck to exclude from price range">✓</th>
+          <th style="padding:6px 8px;text-align:left;font-weight:600;color:var(--dark)">Photo</th>
+          <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--dark)">Retailer</th>
+          <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--dark)">Product</th>
+          <th style="padding:8px 10px;text-align:right;font-weight:600;color:var(--dark)">Price</th>
+          <th style="padding:8px 10px;text-align:center;font-weight:600;color:var(--dark)">Link</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${results.map((r,i) => {
+          const badge = r.reputable ? '<span style="font-size:9px;background:#f0ebe1;color:#b8963e;border-radius:3px;padding:1px 4px;margin-left:4px;font-weight:600">★</span>' : '';
+          const thumb = r.thumbnail
+            ? `<img src="${r.thumbnail}" style="width:44px;height:44px;object-fit:cover;border-radius:4px;border:1px solid var(--border)" onerror="this.style.display='none'">`
+            : '<div style="width:44px;height:44px;background:#f5f2ef;border-radius:4px"></div>';
+          const link = r.url ? `<a href="${r.url}" target="_blank" rel="noopener" style="color:var(--gold);text-decoration:none;font-weight:600;font-size:12px">Open →</a>` : '—';
+          const pc = r.price===data.floor?'#2d6a4f':r.price===data.ceiling?'#6b4c3b':'var(--dark)';
+          const ps = r.price ? '$'+r.price.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}) : 'N/A';
+          return `<tr style="border-top:1px solid var(--border);background:${i%2===0?'#fff':'#fdfcfb'}" data-idx="${i}">
+            <td style="padding:6px 10px;text-align:center">
+              <input type="checkbox" checked class="pricing-row-check" data-idx="${i}"
+                style="width:15px;height:15px;cursor:pointer;accent-color:var(--gold)"
+                onchange="recalcPricing()">
+            </td>
+            <td style="padding:6px 8px">${thumb}</td>
+            <td style="padding:8px 10px;font-weight:600;color:var(--dark);white-space:nowrap">${r.retailer||'—'}${badge}</td>
+            <td style="padding:8px 10px;color:var(--dark);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.title||'').replace(/"/g,"'")}">${(r.title||'').substring(0,48)}${(r.title||'').length>48?'…':''}</td>
+            <td style="padding:8px 10px;text-align:right;font-weight:700;font-size:14px;color:${pc}" class="price-cell" data-price="${r.price||0}">${ps}</td>
+            <td style="padding:8px 10px;text-align:center">${link}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    <div style="font-size:11px;color:var(--mid);margin-top:6px">★ = reputable retailer &nbsp;·&nbsp; <span style="color:#2d6a4f">Green</span> = lowest &nbsp;·&nbsp; <span style="color:#6b4c3b">Brown</span> = highest &nbsp;·&nbsp; Uncheck rows to exclude from price range</div>`;
+}
+
+function recalcPricing(){
+  const checks = document.querySelectorAll('.pricing-row-check');
+  const prices = [];
+  checks.forEach(cb => {
+    if(cb.checked){
+      const row = cb.closest('tr');
+      const p = parseFloat(row.querySelector('.price-cell').dataset.price);
+      if(p > 0) prices.push(p);
+    }
+  });
+  if(!prices.length) return;
+  const floor = Math.min(...prices);
+  const ceil  = Math.max(...prices);
+  const avg   = prices.reduce((a,b)=>a+b,0)/prices.length;
+  const sugg  = Math.round(avg*1.05/5)*5;
+  const fmt   = n => '$'+n.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
+  document.getElementById('pricing-floor').textContent     = fmt(floor);
+  document.getElementById('pricing-ceiling').textContent   = fmt(ceil);
+  document.getElementById('pricing-suggested').textContent = fmt(sugg);
+  // Update row colors
+  document.querySelectorAll('.price-cell').forEach(cell => {
+    const p = parseFloat(cell.dataset.price);
+    cell.style.color = p===floor?'#2d6a4f':p===ceil?'#6b4c3b':'var(--dark)';
+  });
+}
+
 async function runPricingSearch(){
   const product = document.getElementById('pricing-product').value.trim();
   const sku     = document.getElementById('pricing-sku').value.trim();
@@ -1501,49 +1574,12 @@ async function runPricingSearch(){
     document.getElementById('pricing-ceiling').textContent   = _fmt(data.ceiling);
     document.getElementById('pricing-suggested').textContent = _fmt(data.suggested);
 
-    // Table
+    // Table — use shared render function (supports checkboxes)
     const results = data.results || [];
-    const title = document.getElementById('pricing-table-title');
-    title.textContent = `Competitor prices — ${results.length} result${results.length!==1?'s':''} found`;
+    window._pricingResults = results;
+    window._pricingData    = data;
+    _renderPricingTable(results, data);
 
-    if(results.length === 0){
-      document.getElementById('pricing-table-body').innerHTML = '<div style="color:var(--mid);font-size:13px;padding:8px 0">No prices found. Try adding more detail to the product name or SKU and search again.</div>';
-    } else {
-      // Backend already sorted: reputable retailers first, then by price
-      document.getElementById('pricing-table-body').innerHTML = `
-        <table style="width:100%;border-collapse:collapse;font-size:12.5px">
-          <thead>
-            <tr style="background:#f5f2ef">
-              <th style="padding:6px 8px;text-align:left;font-weight:600;color:var(--dark)">Photo</th>
-              <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--dark)">Retailer</th>
-              <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--dark)">Product</th>
-              <th style="padding:8px 10px;text-align:right;font-weight:600;color:var(--dark)">Price</th>
-              <th style="padding:8px 10px;text-align:center;font-weight:600;color:var(--dark)">Link</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${results.map((r,i) => {
-              const badge = r.reputable ? '<span style="font-size:9px;background:#f0ebe1;color:#b8963e;border-radius:3px;padding:1px 4px;margin-left:4px;font-weight:600">★</span>' : '';
-              const thumb = r.thumbnail
-                ? `<img src="${r.thumbnail}" style="width:44px;height:44px;object-fit:cover;border-radius:4px;border:1px solid var(--border)" onerror="this.style.display='none'">`
-                : '<div style="width:44px;height:44px;background:#f5f2ef;border-radius:4px"></div>';
-              const link = r.url
-                ? `<a href="${r.url}" target="_blank" rel="noopener" style="color:var(--gold);text-decoration:none;font-weight:600;font-size:12px">Open →</a>`
-                : '—';
-              const pc = r.price===data.floor?'#2d6a4f':r.price===data.ceiling?'#6b4c3b':'var(--dark)';
-              const ps = r.price ? '$'+r.price.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}) : 'N/A';
-              return `<tr style="border-top:1px solid var(--border);background:${i%2===0?'#fff':'#fdfcfb'}">
-                <td style="padding:6px 8px">${thumb}</td>
-                <td style="padding:8px 10px;font-weight:600;color:var(--dark);white-space:nowrap">${r.retailer||'—'}${badge}</td>
-                <td style="padding:8px 10px;color:var(--dark);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.title||'').replace(/"/g,"'")}">${(r.title||'View product').substring(0,50)}${(r.title||'').length>50?'…':''}</td>
-                <td style="padding:8px 10px;text-align:right;font-weight:700;font-size:14px;color:${pc}">${ps}</td>
-                <td style="padding:8px 10px;text-align:center">${link}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
-        <div style="font-size:11px;color:var(--mid);margin-top:6px">★ = major furniture retailer &nbsp;·&nbsp; <span style="color:#2d6a4f">Green</span> = lowest &nbsp;·&nbsp; <span style="color:#6b4c3b">Brown</span> = highest</div>`;
-    }
 
     if(data.query_used){
       document.getElementById('pricing-query-info').textContent = `Search query: "${data.query_used}"`;
