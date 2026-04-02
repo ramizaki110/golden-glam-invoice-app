@@ -525,26 +525,52 @@ def _price_check_inner():
                 }, SERPAPI_KEY, timeout=25)
                 visual_matches = lens_data.get("visual_matches", [])
                 if visual_matches:
-                    # Use top match title as product name
-                    lens_name = visual_matches[0].get("title", "")
-                    # Try to extract color from top 5 matches
-                    COLOR_WORDS = [
-                        "natural", "white", "black", "brown", "grey", "gray",
-                        "beige", "cream", "tan", "navy", "blue", "green",
-                        "walnut", "oak", "teak", "rattan", "vintage",
-                        "antique", "espresso", "charcoal", "ivory", "taupe",
-                    ]
-                    detected_color = ""
-                    for vm in visual_matches[:5]:
-                        title_lower = vm.get("title", "").lower()
-                        for cw in COLOR_WORDS:
-                            if cw in title_lower and cw not in lens_name.lower():
-                                detected_color = cw
-                                break
-                        if detected_color:
-                            break
+                    # Consensus product name: find the most frequent significant word
+                    # across top 10 Lens matches — much more reliable than top-1
+                    NOISE = {"the","and","for","with","from","this","that",
+                             "chair","table","sofa","lamp","desk","bench",
+                             "outdoor","indoor","patio","set","piece","home",
+                             "decor","collection","series","style","wood",
+                             "furniture","upholstered","dining","accent","side"}
+                    from collections import Counter
+                    word_counts = Counter()
+                    for vm in visual_matches[:10]:
+                        t = vm.get("title","").lower()
+                        for w in t.split():
+                            w = w.strip(".,()-/")
+                            if len(w) > 3 and w not in NOISE:
+                                word_counts[w] += 1
+
+                    # Top word that appears in multiple matches = most reliable identifier
+                    consensus_words = [w for w,c in word_counts.most_common(5) if c >= 2]
+                    if consensus_words:
+                        # Build query from consensus words + top match title for context
+                        lens_name = visual_matches[0].get("title","")
+                        # If top match doesn't include our most common word, use consensus
+                        if consensus_words[0] not in lens_name.lower():
+                            # Find a match that has the consensus word
+                            for vm in visual_matches[:5]:
+                                if consensus_words[0] in vm.get("title","").lower():
+                                    lens_name = vm.get("title","")
+                                    break
+                    else:
+                        lens_name = visual_matches[0].get("title","")
+
+                    # Add color if detectable from matches
+                    COLOR_WORDS = ["natural","white","black","brown","grey","gray",
+                                   "beige","cream","tan","teak","vintage","walnut",
+                                   "ivory","charcoal","espresso","rattan","antique"]
+                    detected_color = next(
+                        (cw for vm in visual_matches[:5]
+                         for cw in COLOR_WORDS
+                         if cw in vm.get("title","").lower()
+                         and cw not in lens_name.lower()),
+                        ""
+                    )
                     if detected_color:
                         lens_name = f"{lens_name} {detected_color}"
+
+                    print(f"[lens] consensus words: {consensus_words[:3]}")
                     print(f"[lens] identified: '{lens_name}'")
                 results += _lens_results_to_rows(visual_matches)
                 print(f"[lens] {len(visual_matches)} visual matches")
@@ -599,25 +625,26 @@ def _price_check_inner():
             seen.add(key)
             deduped.append(r)
 
-    # ── Step 4b: Filter Shopping by relevance — require specific product word ──
-    STOP_WORDS = {"with","from","that","this","and","for","the","chair",
-                  "table","sofa","bench","desk","lamp","shelf","outdoor",
-                  "indoor","home","decor","set","piece","modern","vintage"}
+    # ── Step 4b: Filter Shopping by relevance to identified product ──────────
+    STOP_WORDS = {"with","from","that","this","and","for","the",
+                  "home","decor","set","piece","modern","collection"}
     if lens_name or product_text:
         ref_name  = (lens_name or product_text).lower()
-        key_words = [w for w in ref_name.split()
-                     if len(w) > 3 and w not in STOP_WORDS]
+        key_words = [w.strip(".,()-") for w in ref_name.split()
+                     if len(w) > 3 and w.strip(".,()-") not in STOP_WORDS]
         if key_words:
-            # Use first specific word (most distinctive, e.g. "portia") as primary filter
-            primary_kw = key_words[0]
+            primary_kw = key_words[0]   # most specific word (e.g. "portia")
             filtered   = []
             for r in deduped:
                 title_lower = r.get("title","").lower()
                 if r.get("source_type") == "lens":
-                    filtered.append(r)
+                    filtered.append(r)   # always keep Lens visual matches
                 elif primary_kw in title_lower:
-                    filtered.append(r)
-            deduped = filtered if len(filtered) >= 3 else deduped
+                    filtered.append(r)   # exact primary word match (best)
+                elif any(kw in title_lower for kw in key_words[1:4]):
+                    filtered.append(r)   # any secondary keyword match (fallback)
+            # Only apply filter if it keeps enough results
+            deduped = filtered if len(filtered) >= 4 else deduped
 
     # ── Step 4c: Deduplicate by retailer (keep lowest price per retailer) ────
     seen_ret = {}
