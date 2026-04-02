@@ -22,6 +22,7 @@ OUTPUT_DIR = BASE_DIR / "generated_invoices"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32MB max upload
 
 # ── Temp image store for SerpAPI Lens (in-memory, auto-expires) ───────────────
 _temp_images: dict[str, tuple[str, str, float]] = {}  # token -> (b64, mime, expiry)
