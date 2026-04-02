@@ -503,8 +503,27 @@ def _price_check_inner():
                 }, SERPAPI_KEY, timeout=25)
                 visual_matches = lens_data.get("visual_matches", [])
                 if visual_matches:
+                    # Use top match title as product name
                     lens_name = visual_matches[0].get("title", "")
-                    print(f"[lens] top match: '{lens_name}'")
+                    # Try to extract color from top 5 matches
+                    COLOR_WORDS = [
+                        "natural", "white", "black", "brown", "grey", "gray",
+                        "beige", "cream", "tan", "navy", "blue", "green",
+                        "walnut", "oak", "teak", "rattan", "vintage",
+                        "antique", "espresso", "charcoal", "ivory", "taupe",
+                    ]
+                    detected_color = ""
+                    for vm in visual_matches[:5]:
+                        title_lower = vm.get("title", "").lower()
+                        for cw in COLOR_WORDS:
+                            if cw in title_lower and cw not in lens_name.lower():
+                                detected_color = cw
+                                break
+                        if detected_color:
+                            break
+                    if detected_color:
+                        lens_name = f"{lens_name} {detected_color}"
+                    print(f"[lens] identified: '{lens_name}'")
                 results += _lens_results_to_rows(visual_matches)
                 print(f"[lens] {len(visual_matches)} visual matches")
             except Exception as e:
@@ -558,7 +577,30 @@ def _price_check_inner():
             seen.add(key)
             deduped.append(r)
 
-    # Sort: Lens visual matches first, then reputable retailers, then by price
+    # ── Step 4b: Filter Shopping by relevance to identified product ──────────
+    if lens_name or product_text:
+        ref_name  = (lens_name or product_text).lower()
+        key_words = [w for w in ref_name.split() if len(w) > 3
+                     and w not in ("with","from","that","this","and","for","the")]
+        if key_words:
+            filtered = []
+            for r in deduped:
+                title_lower = r.get("title","").lower()
+                if r.get("source_type") == "lens":
+                    filtered.append(r)
+                elif any(kw in title_lower for kw in key_words[:3]):
+                    filtered.append(r)
+            deduped = filtered if len(filtered) >= 5 else deduped
+
+    # ── Step 4c: Deduplicate by retailer (keep lowest price per retailer) ────
+    seen_ret = {}
+    for r in deduped:
+        key = r.get("retailer","").lower().strip()
+        if key not in seen_ret or r["price"] < seen_ret[key]["price"]:
+            seen_ret[key] = r
+    deduped = list(seen_ret.values())
+
+    # ── Step 4d: Sort — Lens first, then reputable, then price ───────────────
     deduped.sort(key=lambda r: (r.get("source_type")!="lens", not r.get("reputable",False), r["price"]))
 
     # ── Step 5: Price range ───────────────────────────────────────────────────
