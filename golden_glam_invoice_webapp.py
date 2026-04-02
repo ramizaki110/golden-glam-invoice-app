@@ -466,8 +466,8 @@ def _price_check_inner():
             "q":      shopping_query,
             "gl":     "us",
             "hl":     "en",
-            "num":    "40",
-        }, SERPAPI_KEY, timeout=20)
+            "num":    "20",
+        }, SERPAPI_KEY, timeout=15)
 
         shopping_rows = _shopping_results_to_rows(
             shopping_data.get("shopping_results", [])
