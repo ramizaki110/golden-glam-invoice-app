@@ -499,6 +499,7 @@ def _price_check_inner():
     payload      = request.get_json(silent=True) or {}
     image_b64    = payload.get("image", "")
     product_text = payload.get("product", "").strip()
+    vendor_text  = payload.get("vendor", "").strip()
     sku          = payload.get("sku", "").strip()
 
     SERPAPI_KEY = os.environ.get("SERPAPI_KEY", "")
@@ -545,12 +546,16 @@ def _price_check_inner():
                     import re as _re_lens
 
                     def _clean_title(t):
-                        # Strip retailer page suffixes
+                        # Strip retailer suffixes and packaging/shipping noise
                         for pat in [
                             r'\s*[|]\s*(wayfair|pottery barn|west elm|perigold|crate.*barrel|'
                             r'restoration hardware|overstock|amazon|target|walmart|houzz|'
                             r'google shopping|bing shopping)[^|]*$',
                             r"\s*(you'?ll love|shop now|best sellers|on sale|free shipping)[^|]*$",
+                            r',?\s*\d+\s*cartons?\b.*$',   # "2 Cartons - Uttermost"
+                            r',?\s*set\s+of\s+\d+\b.*$',  # "Set of 2"
+                            r',?\s*\d+\s*pieces?\b.*$',    # "3 Pieces"
+                            r'\s*[-–]\s*[A-Z][a-z]+\s*$',  # trailing brand suffix "- Uttermost"
                         ]:
                             t = _re_lens.sub(pat, '', t, flags=_re_lens.IGNORECASE).strip()
                         return t.strip()
@@ -607,29 +612,36 @@ def _price_check_inner():
             print("[lens] skipping Lens — no image URL available")
 
     # ── Step 2: Determine Shopping query ──────────────────────────────────────
-    # Priority: typed product name > SKU > lens-identified name
-    # Typed text is ALWAYS authoritative — never override with Lens
-    if product_text and sku:
-        shopping_query = f"{product_text} {sku}"
-    elif product_text:
-        shopping_query = product_text
-    elif sku:
-        shopping_query = sku
+    # Combine: vendor + product name + SKU for most precise search
+    if product_text:
+        base_name = product_text
     elif lens_name:
-        shopping_query = lens_name
+        base_name = lens_name
+    elif sku:
+        base_name = sku
     elif image_used:
-        # Lens ran but got nothing useful — don't search garbage terms
         return jsonify({
-            "ok":    False,
-            "error": "Google Lens could not identify this product. Please type the product name or brand in the field above and search again.",
+            "ok": False,
+            "error": "Google Lens could not identify this product. Please type the product name or brand in the field above.",
             "lens_failed": True,
         }), 400
     else:
         return jsonify({"ok": False,
             "error": "Please provide a product name, SKU, or upload an image."}), 400
 
+    # Prepend vendor if not already in the base name
+    if vendor_text and vendor_text.lower() not in base_name.lower():
+        shopping_query = f"{vendor_text} {base_name}"
+    else:
+        shopping_query = base_name
+
+    # Append SKU if provided (strong signal for exact product match)
+    if sku and sku not in shopping_query:
+        shopping_query = f"{shopping_query} {sku}"
+
     product_name = shopping_query
-    print(f"[shopping] query: '{shopping_query}' (typed={bool(product_text)}, sku={bool(sku)}, lens={bool(lens_name)})")
+    print(f"[shopping] query='{shopping_query}' vendor='{vendor_text}' sku='{sku}'")
+
 
     # ── Step 3: Google Shopping — two passes ────────────────────────────────
     # Pass 1: General search
@@ -754,28 +766,26 @@ def _price_check_inner():
     already_found  = {r.get("retailer","").lower() for r in results}
     lock = threading.Lock()
 
-    # Build tight search query: quoted brand + quoted product name (most distinctive words)
+    # Build tight search query using vendor + product name
     _core = product_text or lens_name or ""
     _stop_q = {"with","from","and","for","the","outdoor","indoor","occasional",
                "dining","accent","lounge","vintage","natural","white","black",
-               "brown","beige","chair","table","sofa","set","patio"}
+               "brown","beige","chair","table","sofa","set","patio","cartons","carton"}
     _core_words = [w.strip(".,") for w in _core.split() if w.lower() not in _stop_q and len(w) > 2]
 
-    # Detect brand
-    _brand_words = []
-    _known_brands = [("four hands", ["four","hands"]), ("pottery barn", ["pottery","barn"]),
-                     ("west elm", ["west","elm"]), ("serena lily", ["serena","lily"]),
-                     ("restoration hardware", ["restoration","hardware"])]
-    _core_lower = _core.lower()
-    for bname, bwords in _known_brands:
-        if bname in _core_lower:
-            _brand_words = bwords
-            break
+    # Use vendor_text if provided, otherwise detect from known brands
+    if vendor_text:
+        _brand_phrase = vendor_text
+    else:
+        _known_brands = [("Four Hands","four hands"),("Pottery Barn","pottery barn"),
+                         ("West Elm","west elm"),("Uttermost","uttermost"),
+                         ("Arteriors","arteriors"),("Bernhardt","bernhardt"),
+                         ("Restoration Hardware","restoration hardware")]
+        _brand_phrase = next((b for b,bl in _known_brands if bl in _core.lower()), "")
 
-    # Build two search terms: quoted brand phrase + quoted product name
-    _product_words = [w for w in _core_words if w.lower() not in [b.lower() for b in _brand_words]]
-    _brand_phrase   = ' '.join(_brand_words).title() if _brand_words else ''
-    _product_phrase = ' '.join(_product_words[:2])  # e.g. "Portia" or "Portia Chair"
+    _product_words = [w for w in _core_words
+                      if w.lower() not in _brand_phrase.lower().split()]
+    _product_phrase = ' '.join(_product_words[:3])
     print(f"[direct] brand='{_brand_phrase}' product='{_product_phrase}'")
 
     def _is_relevant(title):

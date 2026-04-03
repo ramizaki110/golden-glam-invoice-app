@@ -377,11 +377,20 @@
     <div class="grid2">
       <div class="field">
         <label>Product name / description</label>
-        <input id="pricing-product" placeholder="e.g. Uttermost Flecher Drink Stand Travertine Brass 42H">
+        <input id="pricing-product" placeholder="e.g. Pool Coffee Table">
       </div>
       <div class="field">
+        <label>Vendor / brand <span style="font-size:10px;font-weight:400;color:var(--mid)">(optional but recommended)</span></label>
+        <input id="pricing-vendor" placeholder="e.g. Uttermost, Four Hands, Arteriors">
+      </div>
+    </div>
+    <div class="grid2" style="margin-top:4px">
+      <div class="field">
         <label>SKU / item number <span style="font-size:10px;font-weight:400;color:var(--mid)">(optional)</span></label>
-        <input id="pricing-sku" placeholder="e.g. 25159">
+        <input id="pricing-sku" placeholder="e.g. R50235">
+      </div>
+      <div style="display:flex;align-items:flex-end">
+        <div style="font-size:11px;color:var(--mid);padding-bottom:8px">💡 More fields = more accurate results</div>
       </div>
     </div>
 
@@ -1601,7 +1610,7 @@ async function fetchDeliveryEstimate(productName, zip, urls=[], address=''){
     const res  = await fetch('/api/delivery-estimate', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({product: productName, zip, address, urls})
+      body: JSON.stringify({product: productName, zip, address, urls, vendor: document.getElementById('pricing-vendor')?.value.trim()||''})
     });
     const data = await res.json();
     if(!data.ok || !data.results || data.results.length === 0){
@@ -1820,6 +1829,7 @@ function recalcPricing(){
 
 async function runPricingSearch(){
   const product = document.getElementById('pricing-product').value.trim();
+  const vendor  = document.getElementById('pricing-vendor') ? document.getElementById('pricing-vendor').value.trim() : '';
   const sku     = document.getElementById('pricing-sku').value.trim();
   const address = document.getElementById('pricing-address').value.trim();
   // Extract ZIP from address field (last 5-digit number) or use full address
@@ -1855,7 +1865,7 @@ async function runPricingSearch(){
     const res = await fetch('/api/price-check', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({image: _pricingImageB64, product, sku, zip})
+      body: JSON.stringify({image: _pricingImageB64, product, vendor, sku, zip})
     });
     const data = await res.json();
     clearInterval(interval);
