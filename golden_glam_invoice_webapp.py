@@ -684,6 +684,56 @@ def _price_check_inner():
             if p: return p
         return None
 
+    def _scrape_nextjs_price(url):
+        # Scrape price from Next.js / React sites that don't show price in Google snippets
+        # Looks for __NEXT_DATA__ JSON blob embedded in HTML
+        try:
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "en-US,en;q=0.9",
+            })
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                text = resp.read().decode("utf-8", errors="ignore")
+
+            # Next.js data blob
+            nd_m = _re_direct.search('id="__NEXT_DATA__"[^>]*>([{][^<]{10,})</script>', text, _re_direct.DOTALL)
+            if nd_m:
+                nd_str = nd_m.group(1)
+                for pat in [r'"price"\s*:\s*"?(\d+(?:\.\d{2})?)"?',
+                            r'"salePrice"\s*:\s*"?(\d+(?:\.\d{2})?)"?',
+                            r'"currentPrice"\s*:\s*"?(\d+(?:\.\d{2})?)"?',
+                            r'"listPrice"\s*:\s*"?(\d+(?:\.\d{2})?)"?']:
+                    m = _re_direct.search(pat, nd_str)
+                    if m:
+                        v = float(m.group(1))
+                        if 10 < v < 100000:
+                            print(f"[scrape] Next.js price found: ${v}")
+                            return v
+
+            # JSON-LD structured data
+            for ld_m in _re_direct.finditer(r'application/ld\+json[^>]*>(.*?)</script>', text, _re_direct.DOTALL):
+                try:
+                    m = _re_direct.search(r'"price"\s*:\s*"?(\d+(?:\.\d{2})?)"?', ld_m.group(1))
+                    if m:
+                        v = float(m.group(1))
+                        if 10 < v < 100000:
+                            return v
+                except Exception:
+                    pass
+
+            # Standard HTML
+            for pat in [r'itemprop="price"[^>]*content="(\d+(?:\.\d{2})?)"',
+                        r'data-price="(\d+(?:\.\d{2})?)"']:
+                m = _re_direct.search(pat, text)
+                if m:
+                    v = float(m.group(1))
+                    if 10 < v < 100000:
+                        return v
+        except Exception as e:
+            print(f"[scrape] {url[:50]}: {e}")
+        return None
+
     direct_results = []
     already_found  = {r.get("retailer","").lower() for r in results}
     lock = threading.Lock()
@@ -728,29 +778,34 @@ def _price_check_inner():
         # Strategy A: Use Lens visual match URL if Lens already found this retailer
         if domain in _lens_direct:
             vm_url, vm_title, _ = _lens_direct[domain]
-            # Try to get price from a Google search for this specific URL
-            try:
-                sr2 = _serpapi_get({
-                    "engine": "google",
-                    "q":      f'site:{domain} {_brand_phrase} {_product_phrase}',
-                    "gl":     "us", "hl": "en", "num": "3",
-                }, SERPAPI_KEY, timeout=10)
-                for r2 in sr2.get("organic_results", []):
-                    if domain not in r2.get("link",""):
-                        continue
-                    price = _get_price_from_serpapi_result(r2)
-                    if price:
-                        with lock:
-                            direct_results.append({
-                                "retailer": ret_name, "price": price,
-                                "url": r2.get("link", vm_url),
-                                "title": r2.get("title", vm_title),
-                                "thumbnail": "", "reputable": True, "source_type": "shopping",
-                            })
-                        print(f"[direct] {ret_name} via Lens+search @ ${price}")
-                        return
-            except Exception as ex:
-                print(f"[direct] {ret_name} Lens+search failed: {ex}")
+            # Only use if the Lens title is relevant
+            if _is_relevant(vm_title):
+                try:
+                    sr2 = _serpapi_get({
+                        "engine": "google",
+                        "q":      f'site:{domain} {_brand_phrase} {_product_phrase}',
+                        "gl":     "us", "hl": "en", "num": "3",
+                    }, SERPAPI_KEY, timeout=10)
+                    for r2 in sr2.get("organic_results", []):
+                        if domain not in r2.get("link",""):
+                            continue
+                        if not _is_relevant(r2.get("title","")):
+                            continue
+                        price = _get_price_from_serpapi_result(r2)
+                        if price:
+                            with lock:
+                                direct_results.append({
+                                    "retailer": ret_name, "price": price,
+                                    "url": r2.get("link", vm_url),
+                                    "title": r2.get("title", vm_title),
+                                    "thumbnail": "", "reputable": True, "source_type": "shopping",
+                                })
+                            print(f"[direct] {ret_name} via Lens+search @ ${price}")
+                            return
+                except Exception as ex:
+                    print(f"[direct] {ret_name} Lens+search failed: {ex}")
+            else:
+                print(f"[direct] {ret_name} Lens match irrelevant: {vm_title[:40]}")
 
         # Strategy B: Google search with quoted brand + product name
         # Use 3 progressively looser queries
@@ -771,9 +826,9 @@ def _price_check_inner():
                     if domain not in link:
                         continue
                     title = r.get("title","")
-                    if not _is_relevant(title):
-                        continue
                     price = _get_price_from_serpapi_result(r)
+                    if not price:
+                        price = _scrape_nextjs_price(link)
                     if price:
                         with lock:
                             direct_results.append({
@@ -790,34 +845,45 @@ def _price_check_inner():
 
     results.extend(direct_results)
 
-    # ── Step 4: Deduplicate by URL ────────────────────────────────────────────
+    # ── Step 4: Deduplicate by URL, cap at 40 results ───────────────────────
     seen, deduped = set(), []
     for r in results:
         key = r["url"] or r["title"]
         if key and key not in seen:
             seen.add(key)
             deduped.append(r)
+    if len(deduped) > 40:
+        # Keep reputable retailers + first entries up to 40
+        reputable = [r for r in deduped if r.get("reputable")]
+        others    = [r for r in deduped if not r.get("reputable")]
+        deduped   = (reputable + others)[:40]
 
-    # ── Step 4b: Filter Shopping by relevance to identified product ──────────
-    STOP_WORDS = {"with","from","that","this","and","for","the",
-                  "home","decor","set","piece","modern","collection"}
-    if lens_name or product_text:
-        ref_name  = (lens_name or product_text).lower()
-        key_words = [w.strip(".,()-") for w in ref_name.split()
-                     if len(w) > 3 and w.strip(".,()-") not in STOP_WORDS]
-        if key_words:
-            primary_kw = key_words[0]   # most specific word (e.g. "portia")
-            filtered   = []
-            for r in deduped:
-                title_lower = r.get("title","").lower()
-                if r.get("source_type") == "lens":
-                    filtered.append(r)   # always keep Lens visual matches
-                elif primary_kw in title_lower:
-                    filtered.append(r)   # exact primary word match (best)
-                elif any(kw in title_lower for kw in key_words[1:4]):
-                    filtered.append(r)   # any secondary keyword match (fallback)
-            # Only apply filter if it keeps enough results
-            deduped = filtered if len(filtered) >= 4 else deduped
+    # ── Step 4b: Relevance scoring — token overlap between query and result title ─
+    # Score each result by how many query words appear in the title (whole-word).
+    # Keep all results but sort lower-scoring ones toward the bottom.
+    import re as _re_rel
+    _ref = (product_text or lens_name or "").lower()
+    _rel_stop = {"with","from","that","this","and","for","the","home","decor",
+                 "set","piece","modern","collection","a","an","of","in","at"}
+    _ref_tokens = [w.strip(".,()-") for w in _ref.split()
+                   if len(w) > 2 and w.strip(".,()-") not in _rel_stop]
+
+    def _relevance_score(title: str) -> int:
+        if not _ref_tokens:
+            return 1
+        t = title.lower()
+        return sum(1 for w in _ref_tokens
+                   if _re_rel.search(r'\b' + _re_rel.escape(w) + r'\b', t))
+
+    if _ref_tokens:
+        # Tag each result with a relevance score
+        for r in deduped:
+            r["_score"] = _relevance_score(r.get("title",""))
+        # Filter out results with zero overlap (completely unrelated)
+        # unless we don't have enough results
+        scored = [r for r in deduped if r.get("_score",0) > 0]
+        deduped = scored if len(scored) >= 5 else deduped
+        print(f"[relevance] kept {len(deduped)} results (ref_tokens={_ref_tokens[:4]})")
 
     # ── Step 4c: Deduplicate by retailer (keep lowest price per retailer) ────
     seen_ret = {}
@@ -830,8 +896,16 @@ def _price_check_inner():
     # ── Step 4d: Sort — Lens first, then reputable, then price ───────────────
     # Remove Walmart — not a reputable furniture source for interior design
     deduped = [r for r in deduped if "walmart" not in r.get("retailer","").lower()]
-    # Sort: Lens matches first, reputable retailers next, then by price
-    deduped.sort(key=lambda r: (r.get("source_type")!="lens", not r.get("reputable",False), r["price"]))
+    # Sort: lens first, then reputable, then by relevance score desc, then price asc
+    deduped.sort(key=lambda r: (
+        r.get("source_type") != "lens",
+        not r.get("reputable", False),
+        -(r.get("_score", 0)),   # higher relevance score = earlier
+        r["price"]
+    ))
+    # Clean up internal score field before returning
+    for r in deduped:
+        r.pop("_score", None)
 
     # ── Step 5: Price range ───────────────────────────────────────────────────
     if not deduped:
