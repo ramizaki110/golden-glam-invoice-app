@@ -423,12 +423,28 @@ def _shopping_results_to_rows(items: list) -> list:
         price = _parse_price(it.get("price", ""))
         if price is None:
             continue
-        link      = it.get("link") or it.get("product_link") or ""
-        source    = it.get("source", "")  # actual retailer name e.g. "Wayfair"
-        # Use source name directly — Shopping links often go via Google redirects
-        domain    = urllib.parse.urlparse(link).netloc.replace("www.", "") if link else ""
-        retailer  = source or domain  # prefer source field
-        # Check reputable against both display name and domain
+        # Prefer product_link (direct URL) over link (Google redirect)
+        # SerpAPI returns both — product_link goes straight to the retailer
+        link = (it.get("product_link") or it.get("link") or "").strip()
+
+        # If it's still a Google redirect URL, try to extract the actual URL
+        if "google.com" in link or "ibp=oshop" in link:
+            import urllib.parse as _up
+            try:
+                qs = _up.parse_qs(_up.urlparse(link).query)
+                # Google Shopping encodes retailer URL in 'q' or 'url' param
+                for param in ("url","q","adurl"):
+                    if param in qs:
+                        candidate = qs[param][0]
+                        if candidate.startswith("http") and "google.com" not in candidate:
+                            link = candidate
+                            break
+            except Exception:
+                pass
+
+        source   = it.get("source", "")
+        domain   = urllib.parse.urlparse(link).netloc.replace("www.", "") if link else ""
+        retailer = source or domain
         src_lower = source.lower()
         dom_lower = domain.lower()
         is_rep    = any(r in src_lower or r in dom_lower for r in FURNITURE_RETAILERS)
