@@ -634,6 +634,89 @@ def _price_check_inner():
         except Exception as e:
             print(f"[shopping] pass-{label} failed: {e}")
 
+    # ── Step 3b: Direct site search for retailers not on Google Shopping ────────
+    # West Elm, Pottery Barn, RH, Perigold don't list on Google Shopping
+    import re as _re_direct
+
+    DIRECT_RETAILERS = [
+        ("Perigold",     "perigold.com"),
+        ("West Elm",     "westelm.com"),
+        ("Pottery Barn", "potterybarn.com"),
+        ("RH",           "rh.com"),
+    ]
+
+    def _scrape_price(url):
+        try:
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Accept": "text/html,application/xhtml+xml",
+            })
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                text = resp.read().decode("utf-8", errors="ignore")
+            for pat in [
+                r'"price"\s*:\s*"?([0-9]+(?:\.[0-9]{2})?)"?',
+                r'itemprop="price"[^>]*content="([0-9]+(?:\.[0-9]{2})?)"?',
+                r'data-price="([0-9]+(?:\.[0-9]{2})?)"?',
+            ]:
+                m = _re_direct.search(pat, text)
+                if m:
+                    v = float(m.group(1))
+                    if 10 < v < 100000:
+                        return v
+        except Exception as e2:
+            print(f"[direct] scrape error: {e2}")
+        return None
+
+    already_found = {r.get("retailer","").lower() for r in results}
+
+    for ret_name, domain in DIRECT_RETAILERS:
+        if ret_name.lower() in already_found:
+            print(f"[direct] {ret_name} already in results, skipping")
+            continue
+        try:
+            sr = _serpapi_get({
+                "engine": "google",
+                "q":      f"site:{domain} {shopping_query}",
+                "gl":     "us",
+                "hl":     "en",
+                "num":    "3",
+            }, SERPAPI_KEY, timeout=12)
+
+            found = False
+            for r in sr.get("organic_results", []):
+                link = r.get("link", "")
+                if domain not in link:
+                    continue
+                title  = r.get("title", "")
+                price  = None
+                # Check snippet for price
+                snippet = r.get("snippet", "")
+                pm = _re_direct.search(r'\$([0-9][0-9,]*(?:\.[0-9]{2})?)', snippet)
+                if pm:
+                    price = _parse_price("$" + pm.group(1))
+                # Scrape page if no price in snippet
+                if not price:
+                    price = _scrape_price(link)
+                if price:
+                    results.append({
+                        "retailer":    ret_name,
+                        "price":       price,
+                        "url":         link,
+                        "title":       title,
+                        "thumbnail":   "",
+                        "reputable":   True,
+                        "source_type": "shopping",
+                    })
+                    print(f"[direct] {ret_name}: {title[:50]} @ ${price}")
+                    already_found.add(ret_name.lower())
+                    found = True
+                    break
+            if not found:
+                print(f"[direct] {ret_name}: no match for '{shopping_query[:40]}'")
+        except Exception as e:
+            print(f"[direct] {ret_name} search failed: {e}")
+
+
     # ── Step 4: Deduplicate by URL ────────────────────────────────────────────
     seen, deduped = set(), []
     for r in results:
