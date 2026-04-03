@@ -1541,6 +1541,9 @@ function _renderPricingTable(results, data){
     <div style="display:flex;align-items:center;gap:12px;margin-top:10px;flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span id="pricing-selected-count" style="font-size:12px;color:var(--dark);font-weight:500"></span>
+        <button id="pricing-filter-btn" onclick="toggleFilterSelected()" style="display:none;background:#fff;border:1px solid var(--gold);color:var(--gold);padding:4px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">
+          👁 Show selected only
+        </button>
         <span style="font-size:11px;color:var(--mid)">★ = reputable &nbsp;·&nbsp; <span style="color:#2d6a4f">Green</span> = lowest &nbsp;·&nbsp; <span style="color:#6b4c3b">Brown</span> = highest &nbsp;·&nbsp; Outliers auto-unchecked</span>
       </div>
     </div>`;
@@ -1659,6 +1662,67 @@ function overridePricingSearch(){
   setTimeout(() => { const h = document.getElementById('override-hint'); if(h) h.remove(); pf.style.border=''; pf.style.background=''; pf.onkeydown=null; }, 8000);
 }
 
+let _filterActive = false;
+
+function toggleFilterSelected(){
+  _filterActive = !_filterActive;
+  const btn = document.getElementById('pricing-filter-btn');
+  if(btn) btn.textContent = _filterActive ? '👁 Show all' : '👁 Show selected only';
+  const rows = document.querySelectorAll('#pricing-table-body tbody tr');
+  rows.forEach(row => {
+    const cb = row.querySelector('.pricing-row-check');
+    if(!cb) return;
+    if(_filterActive && !cb.checked){
+      row.style.display = 'none';
+    } else {
+      row.style.display = '';
+    }
+  });
+}
+
+function _reorderTableRows(){
+  const tbody = document.querySelector('#pricing-table-body tbody');
+  if(!tbody) return;
+  const rows = Array.from(tbody.querySelectorAll('tr'));
+  if(!rows.length) return;
+
+  // Split into checked and unchecked
+  const checked   = rows.filter(r => r.querySelector('.pricing-row-check')?.checked);
+  const unchecked = rows.filter(r => !r.querySelector('.pricing-row-check')?.checked);
+
+  // Add a divider row if both groups exist
+  const hasDivider = tbody.querySelector('.pricing-divider-row');
+  if(hasDivider) hasDivider.remove();
+
+  // Re-append: checked first, then divider, then unchecked (greyed)
+  checked.forEach(r => {
+    r.style.opacity = '1';
+    tbody.appendChild(r);
+  });
+
+  if(unchecked.length && checked.length){
+    const divider = document.createElement('tr');
+    divider.className = 'pricing-divider-row';
+    divider.innerHTML = `<td colspan="6" style="padding:6px 10px;background:#f5f2ef;font-size:11px;color:var(--mid);font-style:italic;text-align:center;border-top:2px solid var(--border)">
+      — ${unchecked.length} excluded from price range —
+    </td>`;
+    tbody.appendChild(divider);
+  }
+
+  unchecked.forEach(r => {
+    r.style.opacity = '0.4';
+    r.style.filter = 'grayscale(40%)';
+    tbody.appendChild(r);
+  });
+
+  // If filter is active, hide unchecked rows
+  if(_filterActive){
+    unchecked.forEach(r => r.style.display = 'none');
+  } else {
+    unchecked.forEach(r => r.style.display = '');
+  }
+}
+
 function recalcProfit(){
   const costInput = document.getElementById('pricing-cost');
   const cost      = parseFloat(costInput ? costInput.value : '') || 0;
@@ -1723,9 +1787,17 @@ function recalcPricing(){
   const selAll = document.getElementById('pricing-select-all');
   if(selAll) selAll.checked = checked === total;
 
-  // Update selected count label
+  // Update selected count label + filter button
   const countEl = document.getElementById('pricing-selected-count');
   if(countEl) countEl.textContent = `${checked} of ${total} selected`;
+  const filterBtn = document.getElementById('pricing-filter-btn');
+  if(filterBtn){
+    filterBtn.style.display = (checked < total) ? 'inline-block' : 'none';
+    // Reset label if filter was active but all are now selected
+    if(checked === total) filterBtn.textContent = '👁 Show selected only';
+  }
+  // Apply visual grouping: checked rows on top (normal), unchecked rows faded at bottom
+  _reorderTableRows();
 
   // Update price cell colors
   document.querySelectorAll('.price-cell').forEach(cell => {
