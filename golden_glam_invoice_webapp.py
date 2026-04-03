@@ -565,6 +565,7 @@ def _price_check_inner():
                     print(f"[lens] top_title='{visual_matches[0].get('title','')}' final_name='{lens_name}'")
                 results += _lens_results_to_rows(visual_matches)
                 print(f"[lens] {len(visual_matches)} visual matches")
+            except Exception as e:
                 print(f"[lens] SerpAPI call failed: {e}")
             finally:
                 _delete_temp_image(temp_filename)
