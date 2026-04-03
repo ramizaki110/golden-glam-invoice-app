@@ -638,6 +638,11 @@ def _price_check_inner():
     # West Elm, Pottery Barn, RH, Perigold don't list on Google Shopping
     import re as _re_direct
 
+    # ── Step 3b: Direct site search — Perigold, West Elm, Pottery Barn, RH ─────
+    # These retailers don't list on Google Shopping — search organically + scrape
+    import re as _re_direct
+    import threading
+
     DIRECT_RETAILERS = [
         ("Perigold",     "perigold.com"),
         ("West Elm",     "westelm.com"),
@@ -645,13 +650,13 @@ def _price_check_inner():
         ("RH",           "rh.com"),
     ]
 
-    def _scrape_price(url):
+    def _scrape_price_from_url(url):
         try:
             req = urllib.request.Request(url, headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept": "text/html,application/xhtml+xml",
+                "Accept": "text/html",
             })
-            with urllib.request.urlopen(req, timeout=8) as resp:
+            with urllib.request.urlopen(req, timeout=6) as resp:
                 text = resp.read().decode("utf-8", errors="ignore")
             for pat in [
                 r'"price"\s*:\s*"?([0-9]+(?:\.[0-9]{2})?)"?',
@@ -663,59 +668,55 @@ def _price_check_inner():
                     v = float(m.group(1))
                     if 10 < v < 100000:
                         return v
-        except Exception as e2:
-            print(f"[direct] scrape error: {e2}")
+        except Exception:
+            pass
         return None
 
-    already_found = {r.get("retailer","").lower() for r in results}
+    direct_results = []
+    already_found  = {r.get("retailer","").lower() for r in results}
+    lock = threading.Lock()
 
-    for ret_name, domain in DIRECT_RETAILERS:
+    def _search_retailer(ret_name, domain):
         if ret_name.lower() in already_found:
-            print(f"[direct] {ret_name} already in results, skipping")
-            continue
+            return
         try:
             sr = _serpapi_get({
                 "engine": "google",
                 "q":      f"site:{domain} {shopping_query}",
-                "gl":     "us",
-                "hl":     "en",
-                "num":    "3",
-            }, SERPAPI_KEY, timeout=12)
-
-            found = False
+                "gl":     "us", "hl": "en", "num": "3",
+            }, SERPAPI_KEY, timeout=10)
             for r in sr.get("organic_results", []):
                 link = r.get("link", "")
                 if domain not in link:
                     continue
-                title  = r.get("title", "")
-                price  = None
-                # Check snippet for price
+                title   = r.get("title", "")
                 snippet = r.get("snippet", "")
+                price   = None
                 pm = _re_direct.search(r'\$([0-9][0-9,]*(?:\.[0-9]{2})?)', snippet)
                 if pm:
                     price = _parse_price("$" + pm.group(1))
-                # Scrape page if no price in snippet
                 if not price:
-                    price = _scrape_price(link)
+                    price = _scrape_price_from_url(link)
                 if price:
-                    results.append({
-                        "retailer":    ret_name,
-                        "price":       price,
-                        "url":         link,
-                        "title":       title,
-                        "thumbnail":   "",
-                        "reputable":   True,
-                        "source_type": "shopping",
-                    })
-                    print(f"[direct] {ret_name}: {title[:50]} @ ${price}")
-                    already_found.add(ret_name.lower())
-                    found = True
-                    break
-            if not found:
-                print(f"[direct] {ret_name}: no match for '{shopping_query[:40]}'")
-        except Exception as e:
-            print(f"[direct] {ret_name} search failed: {e}")
+                    with lock:
+                        direct_results.append({
+                            "retailer": ret_name, "price": price,
+                            "url": link, "title": title,
+                            "thumbnail": "", "reputable": True,
+                            "source_type": "shopping",
+                        })
+                    print(f"[direct] {ret_name} @ ${price}: {title[:40]}")
+                    return
+            print(f"[direct] {ret_name}: no priced result found")
+        except Exception as ex:
+            print(f"[direct] {ret_name} failed: {ex}")
 
+    # Run all 4 retailers in parallel threads — much faster
+    threads = [threading.Thread(target=_search_retailer, args=(n, d)) for n, d in DIRECT_RETAILERS]
+    for t in threads: t.start()
+    for t in threads: t.join(timeout=18)  # max 18s total for all
+
+    results.extend(direct_results)
 
     # ── Step 4: Deduplicate by URL ────────────────────────────────────────────
     seen, deduped = set(), []

@@ -1493,6 +1493,22 @@ function _renderPricingTable(results, data){
   console.log(`[outlier] n=${n} Q1=${q1} Q3=${q3} IQR=${iqr} fence=[${lowerFence.toFixed(0)}, ${upperFence.toFixed(0)}]`);
   const isOutlier  = p => n >= 4 && iqr > 0 && (p < lowerFence || p > upperFence);
 
+  // Toolbar lives OUTSIDE the table — update it separately
+  let toolbar = document.getElementById('pricing-toolbar');
+  if(!toolbar){
+    toolbar = document.createElement('div');
+    toolbar.id = 'pricing-toolbar';
+    toolbar.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;padding:8px 12px;background:#faf9f8;border:1px solid var(--border);border-radius:6px';
+    const tableCard = document.getElementById('pricing-table-body').closest('.card') || document.getElementById('pricing-table-body').parentNode;
+    tableCard.insertBefore(toolbar, document.getElementById('pricing-table-body'));
+  }
+  toolbar.innerHTML = `
+    <span id="pricing-selected-count" style="font-size:12px;color:var(--dark);font-weight:600"></span>
+    <button id="pricing-filter-btn" onclick="toggleFilterSelected()" style="display:none;background:#fff;border:1px solid var(--gold);color:var(--gold);padding:3px 10px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">
+      👁 Show selected only
+    </button>
+    <span style="margin-left:auto;font-size:11px;color:var(--mid)">★ reputable &nbsp;·&nbsp; <span style="color:#2d6a4f">■</span> lowest &nbsp;·&nbsp; <span style="color:#6b4c3b">■</span> highest &nbsp;·&nbsp; Outliers auto-unchecked</span>`;
+
   document.getElementById('pricing-table-body').innerHTML = `
     <table style="width:100%;border-collapse:collapse;font-size:12.5px">
       <thead>
@@ -1538,15 +1554,7 @@ function _renderPricingTable(results, data){
         }).join('')}
       </tbody>
     </table>
-    <div style="display:flex;align-items:center;gap:12px;margin-top:10px;flex-wrap:wrap">
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <span id="pricing-selected-count" style="font-size:12px;color:var(--dark);font-weight:500"></span>
-        <button id="pricing-filter-btn" onclick="toggleFilterSelected()" style="display:none;background:#fff;border:1px solid var(--gold);color:var(--gold);padding:4px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">
-          👁 Show selected only
-        </button>
-        <span style="font-size:11px;color:var(--mid)">★ = reputable &nbsp;·&nbsp; <span style="color:#2d6a4f">Green</span> = lowest &nbsp;·&nbsp; <span style="color:#6b4c3b">Brown</span> = highest &nbsp;·&nbsp; Outliers auto-unchecked</span>
-      </div>
-    </div>`;
+`;  // end table innerHTML
 
   // Run initial calculation with outliers excluded
   recalcPricing();
@@ -1683,44 +1691,42 @@ function toggleFilterSelected(){
 function _reorderTableRows(){
   const tbody = document.querySelector('#pricing-table-body tbody');
   if(!tbody) return;
-  const rows = Array.from(tbody.querySelectorAll('tr'));
-  if(!rows.length) return;
 
-  // Split into checked and unchecked
-  const checked   = rows.filter(r => r.querySelector('.pricing-row-check')?.checked);
-  const unchecked = rows.filter(r => !r.querySelector('.pricing-row-check')?.checked);
+  // Get only data rows (not dividers)
+  const allRows   = Array.from(tbody.querySelectorAll('tr:not(.pricing-divider-row)'));
+  if(!allRows.length) return;
 
-  // Add a divider row if both groups exist
-  const hasDivider = tbody.querySelector('.pricing-divider-row');
-  if(hasDivider) hasDivider.remove();
+  const checked   = allRows.filter(r => r.querySelector('.pricing-row-check')?.checked);
+  const unchecked = allRows.filter(r => !r.querySelector('.pricing-row-check')?.checked);
 
-  // Re-append: checked first, then divider, then unchecked (greyed)
+  // Clear tbody completely then rebuild cleanly
+  tbody.innerHTML = '';
+
+  // Selected rows first — full opacity
   checked.forEach(r => {
     r.style.opacity = '1';
+    r.style.filter  = '';
+    r.style.display = '';
     tbody.appendChild(r);
   });
 
+  // ONE single divider
   if(unchecked.length && checked.length){
-    const divider = document.createElement('tr');
-    divider.className = 'pricing-divider-row';
-    divider.innerHTML = `<td colspan="6" style="padding:6px 10px;background:#f5f2ef;font-size:11px;color:var(--mid);font-style:italic;text-align:center;border-top:2px solid var(--border)">
-      — ${unchecked.length} excluded from price range —
+    const div = document.createElement('tr');
+    div.className = 'pricing-divider-row';
+    div.innerHTML = `<td colspan="6" style="padding:6px 12px;background:#f5f2ef;font-size:11px;color:var(--mid);text-align:center;border-top:2px solid var(--border);border-bottom:1px solid var(--border)">
+      — ${unchecked.length} result${unchecked.length!==1?'s':''} excluded from price range —
     </td>`;
-    tbody.appendChild(divider);
+    tbody.appendChild(div);
   }
 
+  // Excluded rows — faded
   unchecked.forEach(r => {
-    r.style.opacity = '0.4';
-    r.style.filter = 'grayscale(40%)';
+    r.style.opacity = '0.38';
+    r.style.filter  = 'grayscale(50%)';
+    r.style.display = _filterActive ? 'none' : '';
     tbody.appendChild(r);
   });
-
-  // If filter is active, hide unchecked rows
-  if(_filterActive){
-    unchecked.forEach(r => r.style.display = 'none');
-  } else {
-    unchecked.forEach(r => r.style.display = '');
-  }
 }
 
 function recalcProfit(){
@@ -1807,7 +1813,7 @@ function recalcPricing(){
       cell.style.color = p===floor?'#2d6a4f':p===ceil?'#6b4c3b':'var(--dark)';
     } else {
       cell.style.color = 'var(--mid)';
-      cell.style.textDecoration = 'line-through';
+      cell.style.textDecoration = 'none';
     }
   });
 
