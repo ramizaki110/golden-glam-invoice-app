@@ -678,14 +678,21 @@ def _price_check_inner():
 
     # Build relevance keywords from shopping_query for result validation
     _stop = {"with","from","and","for","the","chair","table","sofa","outdoor",
-              "indoor","home","decor","set","piece","collection","furniture"}
+              "indoor","home","decor","set","piece","collection","furniture",
+              "natural","vintage","white","black","brown","beige"}
     _key_words = [w.lower().strip(".,") for w in shopping_query.split()
                   if len(w) > 3 and w.lower() not in _stop]
 
     def _is_relevant(title: str) -> bool:
-        # At least 1 key word must appear in the title
+        if not _key_words:
+            return True
         title_low = title.lower()
-        return any(kw in title_low for kw in _key_words[:3]) if _key_words else True
+        # Use whole-word matching — "portia" should NOT match "portofino" or "portside"
+        import re as _re_rel
+        return any(
+            bool(_re_rel.search(r'\b' + _re_rel.escape(kw) + r'\b', title_low))
+            for kw in _key_words[:3]
+        )
 
     def _search_retailer(ret_name, domain):
         if ret_name.lower() in already_found:

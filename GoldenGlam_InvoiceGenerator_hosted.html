@@ -1482,16 +1482,13 @@ function _renderPricingTable(results, data){
   const title = document.getElementById('pricing-table-title');
   title.textContent = `Competitor prices — ${results.length} result${results.length!==1?'s':''} found`;
 
-  // Auto-detect outliers using IQR method
-  const allPrices  = results.map(r => r.price||0).filter(p => p > 0).sort((a,b)=>a-b);
-  const n          = allPrices.length;
-  const q1         = n >= 4 ? allPrices[Math.floor(n * 0.25)] : 0;
-  const q3         = n >= 4 ? allPrices[Math.floor(n * 0.75)] : 0;
-  const iqr        = q3 - q1;
-  const lowerFence = Math.max(0, q1 - 1.5 * iqr);
-  const upperFence = q3 + 1.5 * iqr;
-  console.log(`[outlier] n=${n} Q1=${q1} Q3=${q3} IQR=${iqr} fence=[${lowerFence.toFixed(0)}, ${upperFence.toFixed(0)}]`);
-  const isOutlier  = p => n >= 4 && iqr > 0 && (p < lowerFence || p > upperFence);
+  // Outlier detection: median-based with tight thresholds
+  // Flags prices < 45% or > 200% of median — catches $152 chairs in a $800 range
+  const allPrices = results.map(r => r.price||0).filter(p => p > 0).sort((a,b)=>a-b);
+  const n         = allPrices.length;
+  const median    = n > 0 ? allPrices[Math.floor(n / 2)] : 0;
+  const isOutlier = p => n >= 4 && median > 0 && (p < median * 0.45 || p > median * 2.2);
+  console.log(`[outlier] n=${n} median=${median} thresholds=[${(median*0.45).toFixed(0)}, ${(median*2.2).toFixed(0)}]`);
 
   // Toolbar lives OUTSIDE the table — update it separately
   let toolbar = document.getElementById('pricing-toolbar');
