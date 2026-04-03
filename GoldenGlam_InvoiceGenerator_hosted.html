@@ -1692,36 +1692,36 @@ function _reorderTableRows(){
   const tbody = document.querySelector('#pricing-table-body tbody');
   if(!tbody) return;
 
-  // Get only data rows (not dividers)
+  // Get data rows only (not dividers) — keep references before any DOM changes
   const allRows   = Array.from(tbody.querySelectorAll('tr:not(.pricing-divider-row)'));
   if(!allRows.length) return;
 
-  const checked   = allRows.filter(r => r.querySelector('.pricing-row-check')?.checked);
-  const unchecked = allRows.filter(r => !r.querySelector('.pricing-row-check')?.checked);
+  const checkedRows   = allRows.filter(r => r.querySelector('.pricing-row-check')?.checked);
+  const uncheckedRows = allRows.filter(r => !r.querySelector('.pricing-row-check')?.checked);
 
-  // Clear tbody completely then rebuild cleanly
-  tbody.innerHTML = '';
+  // Remove existing divider(s) only
+  tbody.querySelectorAll('.pricing-divider-row').forEach(d => d.remove());
 
-  // Selected rows first — full opacity
-  checked.forEach(r => {
+  // Move checked rows to top — appendChild moves them without destroying
+  checkedRows.forEach(r => {
     r.style.opacity = '1';
     r.style.filter  = '';
     r.style.display = '';
     tbody.appendChild(r);
   });
 
-  // ONE single divider
-  if(unchecked.length && checked.length){
+  // Insert ONE divider
+  if(uncheckedRows.length && checkedRows.length){
     const div = document.createElement('tr');
     div.className = 'pricing-divider-row';
     div.innerHTML = `<td colspan="6" style="padding:6px 12px;background:#f5f2ef;font-size:11px;color:var(--mid);text-align:center;border-top:2px solid var(--border);border-bottom:1px solid var(--border)">
-      — ${unchecked.length} result${unchecked.length!==1?'s':''} excluded from price range —
+      — ${uncheckedRows.length} result${uncheckedRows.length!==1?'s':''} excluded from price range —
     </td>`;
     tbody.appendChild(div);
   }
 
-  // Excluded rows — faded
-  unchecked.forEach(r => {
+  // Move unchecked rows after divider — greyed out but still visible
+  uncheckedRows.forEach(r => {
     r.style.opacity = '0.38';
     r.style.filter  = 'grayscale(50%)';
     r.style.display = _filterActive ? 'none' : '';

@@ -676,6 +676,17 @@ def _price_check_inner():
     already_found  = {r.get("retailer","").lower() for r in results}
     lock = threading.Lock()
 
+    # Build relevance keywords from shopping_query for result validation
+    _stop = {"with","from","and","for","the","chair","table","sofa","outdoor",
+              "indoor","home","decor","set","piece","collection","furniture"}
+    _key_words = [w.lower().strip(".,") for w in shopping_query.split()
+                  if len(w) > 3 and w.lower() not in _stop]
+
+    def _is_relevant(title: str) -> bool:
+        # At least 1 key word must appear in the title
+        title_low = title.lower()
+        return any(kw in title_low for kw in _key_words[:3]) if _key_words else True
+
     def _search_retailer(ret_name, domain):
         if ret_name.lower() in already_found:
             return
@@ -683,13 +694,17 @@ def _price_check_inner():
             sr = _serpapi_get({
                 "engine": "google",
                 "q":      f"site:{domain} {shopping_query}",
-                "gl":     "us", "hl": "en", "num": "3",
+                "gl":     "us", "hl": "en", "num": "5",
             }, SERPAPI_KEY, timeout=10)
             for r in sr.get("organic_results", []):
                 link = r.get("link", "")
                 if domain not in link:
                     continue
-                title   = r.get("title", "")
+                title = r.get("title", "")
+                # Relevance check — skip if title doesn't match product
+                if not _is_relevant(title):
+                    print(f"[direct] {ret_name} skipping irrelevant: {title[:40]}")
+                    continue
                 snippet = r.get("snippet", "")
                 price   = None
                 pm = _re_direct.search(r'\$([0-9][0-9,]*(?:\.[0-9]{2})?)', snippet)
@@ -707,7 +722,7 @@ def _price_check_inner():
                         })
                     print(f"[direct] {ret_name} @ ${price}: {title[:40]}")
                     return
-            print(f"[direct] {ret_name}: no priced result found")
+            print(f"[direct] {ret_name}: no relevant priced result found")
         except Exception as ex:
             print(f"[direct] {ret_name} failed: {ex}")
 
