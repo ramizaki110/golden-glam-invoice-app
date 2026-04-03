@@ -491,9 +491,10 @@ def _price_check_inner():
             "error": "SerpAPI not configured. Add SERPAPI_KEY to Render environment variables."}), 503
 
     results      = []
-    product_name = product_text  # what we'll show the user and use for Shopping
-    lens_name    = ""            # name extracted from Lens top result
+    product_name = product_text
+    lens_name    = ""
     image_used   = False
+    _lens_direct = {}  # domain -> (url, title, retailer_name) found in Lens visual matches
 
     # ── Step 1: Google Lens via Supabase Storage (external, no deadlock) ────────
     if image_b64:
@@ -565,6 +566,23 @@ def _price_check_inner():
                     print(f"[lens] top_title='{visual_matches[0].get('title','')}' final_name='{lens_name}'")
                 results += _lens_results_to_rows(visual_matches)
                 print(f"[lens] {len(visual_matches)} visual matches")
+
+                # Extract direct retailer URLs found by Lens (no search needed — visual match)
+                DIRECT_DOMAINS = {
+                    "perigold.com":    "Perigold",
+                    "westelm.com":     "West Elm",
+                    "potterybarn.com": "Pottery Barn",
+                    "rh.com":          "RH",
+                }
+                lens_direct_urls = {}  # domain -> (url, title)
+                for vm in visual_matches[:20]:
+                    vm_url = vm.get("link","")
+                    for dom, name in DIRECT_DOMAINS.items():
+                        if dom in vm_url and dom not in lens_direct_urls:
+                            lens_direct_urls[dom] = (vm_url, vm.get("title",""), name)
+                            print(f"[lens] found direct retailer in visual: {name} -> {vm_url[:60]}")
+                # Store for use in direct retailer step
+                _lens_direct = lens_direct_urls
             except Exception as e:
                 print(f"[lens] SerpAPI call failed: {e}")
             finally:
@@ -676,31 +694,68 @@ def _price_check_inner():
     already_found  = {r.get("retailer","").lower() for r in results}
     lock = threading.Lock()
 
-    # Build relevance keywords from shopping_query for result validation
-    _stop = {"with","from","and","for","the","chair","table","sofa","outdoor",
-              "indoor","home","decor","set","piece","collection","furniture",
-              "natural","vintage","white","black","brown","beige"}
-    _key_words = [w.lower().strip(".,") for w in shopping_query.split()
-                  if len(w) > 3 and w.lower() not in _stop]
+    # Build short search query for direct retailers — just brand + core name
+    # Extract brand (vendor) from lens_name or product_text
+    _brand = ""
+    _core  = product_text or lens_name or ""
+    # Common furniture brands — detect if one is in the query
+    _known_brands = ["four hands","arteriors","bernhardt","restoration hardware",
+                     "pottery barn","west elm","cb2","serena lily","anthropologie",
+                     "hooker","universal","bassett","caracole","vanguard"]
+    for b in _known_brands:
+        if b in _core.lower():
+            _brand = b.title()
+            break
 
+    # Short search query: brand + first 2-3 distinctive words
+    _stop_q = {"with","from","and","for","the","outdoor","indoor","occasional",
+               "dining","accent","side","arm","lounge","vintage","natural",
+               "white","black","brown","beige","chair","table","sofa","set"}
+    _core_words = [w for w in _core.split() if w.lower() not in _stop_q and len(w) > 2]
+    # Use brand + first 2 core words for a tight, accurate search
+    _short_query = " ".join(([_brand] if _brand else []) + _core_words[:2])
+    if not _short_query:
+        _short_query = _core[:40]
+    print(f"[direct] short query: '{_short_query}'")
+
+    # Whole-word relevance check
     def _is_relevant(title: str) -> bool:
-        if not _key_words:
+        if not _core_words:
             return True
         title_low = title.lower()
-        # Use whole-word matching — "portia" should NOT match "portofino" or "portside"
-        import re as _re_rel
         return any(
-            bool(_re_rel.search(r'\b' + _re_rel.escape(kw) + r'\b', title_low))
-            for kw in _key_words[:3]
+            bool(_re_direct.search(r'\b' + _re_direct.escape(w.lower()) + r'\b', title_low))
+            for w in _core_words[:2]
         )
 
     def _search_retailer(ret_name, domain):
         if ret_name.lower() in already_found:
+            print(f"[direct] {ret_name} already found, skipping")
             return
+
+        # Priority 1: Use Lens visual match URL if found
+        if not hasattr(_lens_direct, '__contains__'):
+            pass
+        elif domain in _lens_direct:
+            vm_url, vm_title, _ = _lens_direct[domain]
+            price = _scrape_price_from_url(vm_url)
+            if price:
+                with lock:
+                    direct_results.append({
+                        "retailer": ret_name, "price": price,
+                        "url": vm_url, "title": vm_title,
+                        "thumbnail": "", "reputable": True,
+                        "source_type": "shopping",
+                    })
+                print(f"[direct] {ret_name} via Lens @ ${price}: {vm_title[:40]}")
+                return
+            print(f"[direct] {ret_name} Lens URL found but no price, falling back to search")
+
+        # Priority 2: Search with short targeted query
         try:
             sr = _serpapi_get({
                 "engine": "google",
-                "q":      f"site:{domain} {shopping_query}",
+                "q":      f"site:{domain} {_short_query}",
                 "gl":     "us", "hl": "en", "num": "5",
             }, SERPAPI_KEY, timeout=10)
             for r in sr.get("organic_results", []):
@@ -708,9 +763,8 @@ def _price_check_inner():
                 if domain not in link:
                     continue
                 title = r.get("title", "")
-                # Relevance check — skip if title doesn't match product
                 if not _is_relevant(title):
-                    print(f"[direct] {ret_name} skipping irrelevant: {title[:40]}")
+                    print(f"[direct] {ret_name} skip irrelevant: {title[:40]}")
                     continue
                 snippet = r.get("snippet", "")
                 price   = None
@@ -729,7 +783,7 @@ def _price_check_inner():
                         })
                     print(f"[direct] {ret_name} @ ${price}: {title[:40]}")
                     return
-            print(f"[direct] {ret_name}: no relevant priced result found")
+            print(f"[direct] {ret_name}: no relevant result for '{_short_query}'")
         except Exception as ex:
             print(f"[direct] {ret_name} failed: {ex}")
 
