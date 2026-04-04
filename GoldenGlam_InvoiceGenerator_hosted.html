@@ -812,13 +812,27 @@ function addItem(pre={}){
         <input id="i${id}_unit_custom" placeholder="e.g. Set of 6" style="margin-top:4px;display:${(pre.unit&&!['Piece','Set of 2','Set of 3','Set of 4','Set of 5'].includes(pre.unit)&&pre.unit!=='')?'block':'none'}" value="${(pre.unit&&!['Piece','Set of 2','Set of 3','Set of 4','Set of 5'].includes(pre.unit))?pre.unit:''}">
       </div>
       <div class="field" style="grid-column:span 3">
-        <label>Product photo <span style="font-size:10px;font-weight:400;color:var(--mid)">(shown in PDF — embedded automatically)</span></label>
+        <label>Product photo <span style="font-size:10px;font-weight:400;color:var(--mid)">(shown in PDF — embedded & persisted automatically)</span></label>
         <div style="display:flex;align-items:flex-start;gap:10px">
-          <div style="flex:1">
-            <input type="file" id="i${id}_imgfile" accept="image/*" onchange="previewImg(${id})" style="width:100%;font-size:12px">
-            <div class="hint" style="margin-top:4px">Photo travels with the summary — no re-upload needed</div>
+          <div style="flex:1;position:relative">
+            <div id="i${id}_dropzone"
+              onclick="document.getElementById('i${id}_imgfile').click()"
+              ondragover="event.preventDefault();this.style.borderColor='var(--gold)'"
+              ondragleave="this.style.borderColor='var(--border)'"
+              ondrop="event.preventDefault();this.style.borderColor='var(--border)';handleItemPhotoFile(${id},event.dataTransfer.files[0])"
+              style="border:2px dashed var(--border);border-radius:6px;padding:8px 12px;cursor:pointer;font-size:12px;color:var(--mid);text-align:center;transition:border-color .15s;min-height:38px;display:flex;align-items:center;justify-content:center">
+              📎 Click, drag, or paste photo
+            </div>
+            <input type="file" id="i${id}_imgfile" accept="image/*"
+              onchange="handleItemPhotoFile(${id},this.files[0])"
+              style="display:none">
+            <div class="hint" style="margin-top:4px">Ctrl+V to paste · Auto-saved with invoice</div>
           </div>
-          <img id="i${id}_imgprev" style="display:none;width:140px;height:110px;object-fit:cover;border-radius:6px;border:1px solid var(--border);flex-shrink:0">
+          <div style="position:relative;flex-shrink:0">
+            <img id="i${id}_imgprev" style="display:none;width:140px;height:110px;object-fit:cover;border-radius:6px;border:1px solid var(--border)">
+            <button id="i${id}_imgclear" onclick="clearItemPhoto(${id})"
+              style="display:none;position:absolute;top:4px;right:4px;background:rgba(0,0,0,0.5);color:#fff;border:none;border-radius:50%;width:20px;height:20px;font-size:11px;cursor:pointer;line-height:1">✕</button>
+          </div>
         </div>
       </div>
     </div>`;
@@ -827,10 +841,14 @@ function addItem(pre={}){
   refreshLibraryDropdowns();
   // If a photo was passed in (e.g. loading from invoice library), restore it immediately
   if(pre.photo){
-    const cleanPhoto = pre.photo.replace(/[\s]/g, ""); // strip any whitespace from stored base64
+    const cleanPhoto = pre.photo.replace(/[\s]/g, "");
     _compressedImgs[id] = cleanPhoto;
-    const prev = document.getElementById('i'+id+'_imgprev');
-    if(prev){ prev.src = cleanPhoto; prev.style.display = ''; }
+    const prev  = document.getElementById('i'+id+'_imgprev');
+    const clear = document.getElementById('i'+id+'_imgclear');
+    const dzone = document.getElementById('i'+id+'_dropzone');
+    if(prev)  { prev.src = cleanPhoto; prev.style.display = ''; }
+    if(clear) { clear.style.display = ''; }
+    if(dzone) { dzone.style.display = 'none'; }
   }
   recalc();
 }
@@ -838,16 +856,18 @@ function addItem(pre={}){
 // Compressed base64 store: keyed by item id
 const _compressedImgs = {};
 
-function previewImg(id){
-  const file = document.getElementById('i'+id+'_imgfile').files[0];
-  const prev = document.getElementById('i'+id+'_imgprev');
-  if(!file){ prev.style.display='none'; delete _compressedImgs[id]; return; }
+function handleItemPhotoFile(id, file){
+  if(!file) return;
+  const prev   = document.getElementById('i'+id+'_imgprev');
+  const clear  = document.getElementById('i'+id+'_imgclear');
+  const dzone  = document.getElementById('i'+id+'_dropzone');
   const reader = new FileReader();
   reader.onload = e => {
     const original = e.target.result;
-    // Show preview immediately
     prev.src = original; prev.style.display = '';
-    // Compress in background: max 500px, JPEG quality 0.55
+    if(clear) clear.style.display = '';
+    if(dzone) dzone.style.display = 'none';
+    // Compress: max 500px, JPEG 0.55
     const img = new Image();
     img.onload = () => {
       const MAX = 500;
@@ -865,6 +885,69 @@ function previewImg(id){
   };
   reader.readAsDataURL(file);
 }
+
+// Keep old name as alias for any existing calls
+function previewImg(id){ handleItemPhotoFile(id, document.getElementById('i'+id+'_imgfile').files[0]); }
+
+function clearItemPhoto(id){
+  delete _compressedImgs[id];
+  const prev  = document.getElementById('i'+id+'_imgprev');
+  const clear = document.getElementById('i'+id+'_imgclear');
+  const dzone = document.getElementById('i'+id+'_dropzone');
+  const input = document.getElementById('i'+id+'_imgfile');
+  if(prev)  { prev.src=''; prev.style.display='none'; }
+  if(clear) { clear.style.display='none'; }
+  if(dzone) { dzone.style.display='flex'; }
+  if(input) { input.value=''; }
+}
+
+// Paste support for invoice item photos — Ctrl+V anywhere on the invoice tab
+document.addEventListener('paste', (e) => {
+  // Skip if we're on the pricing tab (it has its own paste handler)
+  const active = document.querySelector('.tab-panel.active');
+  if(!active || active.id === 'tab-pricing') return;
+
+  const clipItems = e.clipboardData?.items;
+  if(!clipItems) return;
+
+  for(const ci of clipItems){
+    if(ci.type.startsWith('image/')){
+      const file = ci.getAsFile();
+      if(!file) continue;
+
+      // Find the last item row that doesn't have a photo yet
+      // or focus on the active/focused item
+      const allItems = items.map(d => d.id);
+      let targetId = null;
+
+      // Check if focus is near a specific item
+      const focused = document.activeElement;
+      if(focused){
+        const row = focused.closest('[id^="item-row-"]');
+        if(row){
+          const rowId = parseInt(row.id.replace('item-row-',''));
+          if(!isNaN(rowId)) targetId = rowId;
+        }
+      }
+
+      // Fall back to last item without a photo
+      if(!targetId){
+        for(let i = allItems.length-1; i >= 0; i--){
+          if(!_compressedImgs[allItems[i]]){ targetId = allItems[i]; break; }
+        }
+      }
+
+      // Fall back to last item
+      if(!targetId && allItems.length) targetId = allItems[allItems.length-1];
+
+      if(targetId !== null){
+        handleItemPhotoFile(targetId, file);
+        e.preventDefault();
+      }
+      break;
+    }
+  }
+});
 
 function recalcNetPrice(id, changed){
   const price = document.getElementById('i'+id+'_price');
