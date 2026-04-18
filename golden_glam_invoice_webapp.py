@@ -1144,10 +1144,6 @@ def generate():
 def download(filename: str):
     return send_from_directory(OUTPUT_DIR, filename, as_attachment=True)
 
-@app.get("/download/<path:filename>")
-def download(filename: str):
-    return send_from_directory(OUTPUT_DIR, filename, as_attachment=True)
-
 
 # ── Proposal Generator ─────────────────────────────────────────────────────────
 # Strategy: all boilerplate (intro, principles, what we'll do, sign-off) is
