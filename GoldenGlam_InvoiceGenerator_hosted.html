@@ -134,7 +134,7 @@
   <div class="nav-section">Export</div>
   <button class="nav-btn" onclick="showTab('export',this)">📄 Summary & Export</button>
   <div class="nav-section">Proposals</div>
-  <button class="nav-btn" onclick="showTab('proposal',this)">📝 Proposal Generator</button>
+  <button class="nav-btn" onclick="showTab('proposal',this); propInit()">📝 Proposal Generator</button>
   <div class="nav-section" style="margin-top:auto">Sync</div>
   <button class="nav-btn" onclick="loadServerData()" title="Reload all data from server">🔄 Refresh data</button>
   <div class="sidebar-footer">GoldenGlam_InvoiceGenerator.html<br>Open in any browser • No login needed</div>
@@ -2556,13 +2556,6 @@ async function propGenerate() {
   }
 }
 
-// Init proposal tab when first opened
-const _origShowTab = showTab;
-// Override showTab to init proposal on first visit
-function showTab(id, btn) {
-  _origShowTab(id, btn);
-  if (id === 'proposal') propInit();
-}
 
 </script>
 </body>
