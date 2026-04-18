@@ -1144,6 +1144,344 @@ def generate():
 def download(filename: str):
     return send_from_directory(OUTPUT_DIR, filename, as_attachment=True)
 
+@app.get("/download/<path:filename>")
+def download(filename: str):
+    return send_from_directory(OUTPUT_DIR, filename, as_attachment=True)
+
+
+# ── Proposal Generator ─────────────────────────────────────────────────────────
+# Strategy: all boilerplate (intro, principles, what we'll do, sign-off) is
+# hardcoded — zero tokens spent on it. Claude ONLY writes the room descriptions
+# (3-5 sentences each) and intro paragraphs. Uses claude-haiku-4-5 (~20x cheaper
+# than Opus) since it only needs to write polished short paragraphs.
+
+ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+
+# Compact system prompt — no examples, no lengthy instructions
+_PROPOSAL_SYS = (
+    "You are Rana Salah, co-founder of Golden Glam Interiors LLC, an interior styling "
+    "business in Atlanta. Write warm, specific, professional interior design proposal copy. "
+    "Style: British English spelling, no em dashes, no AI filler phrases, no vague promises. "
+    "Be concrete about what will actually change in each room. Neutral/minimalist aesthetic. "
+    "3-5 sentences per room description."
+)
+
+# Only ask Claude for the variable parts
+_PROPOSAL_USER = """Write proposal copy for client: {client_name}
+Preferences: {preferences}
+
+Return ONLY valid JSON, no markdown:
+{{
+  "intro_para_1": "2-sentence thank-you opening personalised to the client",
+  "intro_para_2": "2-sentence paragraph acknowledging their specific preferences/home",
+  "phases": [{phase_items}]
+}}
+
+For each phase item use:
+{{"phase_number":N,"phase_name":"...","rooms":[{{"label":"(a) Name","description":"3-5 sentence specific scope"}}]}}
+
+Phases and rooms to write:
+{phases_text}"""
+
+
+def _call_haiku(system: str, user: str) -> str:
+    """Call claude-haiku — cheapest model, fast, good enough for proposal copy."""
+    if not ANTHROPIC_KEY:
+        raise RuntimeError("ANTHROPIC_API_KEY not set in environment.")
+    body = json.dumps({
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 2500,
+        "system": system,
+        "messages": [{"role": "user", "content": user}]
+    }).encode()
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=body,
+        headers={
+            "x-api-key":          ANTHROPIC_KEY,
+            "anthropic-version":  "2023-06-01",
+            "content-type":       "application/json",
+        },
+        method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read())
+            return data["content"][0]["text"]
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"Anthropic API error {e.code}: {e.read().decode()[:400]}")
+
+
+def _build_proposal_docx(client_name: str, proposal_data: dict) -> Path:
+    from docx import Document
+    from docx.shared import Pt, Inches, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    doc = Document()
+
+    # Page margins
+    for sec in doc.sections:
+        sec.page_width    = int(8.5 * 914400)
+        sec.page_height   = int(11  * 914400)
+        sec.left_margin   = int(1.0 * 914400)
+        sec.right_margin  = int(1.0 * 914400)
+        sec.top_margin    = int(1.0 * 914400)
+        sec.bottom_margin = int(1.0 * 914400)
+
+    def r(run, sz=11, bold=False, color=None):
+        run.font.name = "Calibri"
+        run.font.size = Pt(sz)
+        run.font.bold = bold
+        if color:
+            run.font.color.rgb = RGBColor(*color)
+
+    def para(text="", sz=11, bold=False, color=None, align=WD_ALIGN_PARAGRAPH.LEFT,
+             sb=5, sa=5, underline=False):
+        p = doc.add_paragraph()
+        p.alignment = align
+        p.paragraph_format.space_before = Pt(sb)
+        p.paragraph_format.space_after  = Pt(sa)
+        if text:
+            run = p.add_run(text)
+            r(run, sz, bold, color)
+            run.font.underline = underline
+        return p
+
+    def bul(bold_part="", rest=""):
+        p = doc.add_paragraph(style="List Bullet")
+        p.paragraph_format.space_before = Pt(2)
+        p.paragraph_format.space_after  = Pt(2)
+        if bold_part:
+            r1 = p.add_run(bold_part); r(r1, 11, True)
+            r2 = p.add_run(rest);      r(r2, 11)
+        else:
+            rx = p.add_run(rest or bold_part); r(rx, 11)
+
+    def num(bold_part="", rest=""):
+        p = doc.add_paragraph(style="List Number")
+        p.paragraph_format.space_before = Pt(2)
+        p.paragraph_format.space_after  = Pt(2)
+        r1 = p.add_run(bold_part); r(r1, 11, True)
+        if rest:
+            r2 = p.add_run(rest); r(r2, 11)
+
+    def sub(text):
+        p = doc.add_paragraph(style="List Bullet 2")
+        p.paragraph_format.space_before = Pt(1)
+        p.paragraph_format.space_after  = Pt(1)
+        rx = p.add_run(text); r(rx, 10)
+
+    def heading(text):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(12)
+        p.paragraph_format.space_after  = Pt(4)
+        rx = p.add_run(text); r(rx, 11, True)
+        rx.font.underline = True
+
+    # ── Header (logo) ─────────────────────────────────────────────────────────
+    logo_path = BASE_DIR / "golden_glam_logo_final.png"
+    if logo_path.exists():
+        hdr = doc.sections[0].header
+        hp  = hdr.paragraphs[0]
+        hp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        hp.add_run().add_picture(str(logo_path), width=Inches(2.6))
+
+    # ── Footer ────────────────────────────────────────────────────────────────
+    ftr = doc.sections[0].footer
+    for fp in ftr.paragraphs:
+        for fx in fp.runs: fx.text = ""
+
+    def fline(text, bold=False, sz=8):
+        p = ftr.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.paragraph_format.space_before = Pt(1)
+        p.paragraph_format.space_after  = Pt(1)
+        rx = p.add_run(text); r(rx, sz, bold, (120, 120, 120))
+
+    fline("GOLDEN GLAM INTERIORS LLC", bold=True, sz=9)
+    fline("Address: 828 Highland Ln Ne, Apt. 2204, Atlanta, GA 30306  |  Phone: 770-375-7343")
+    fline("Bank account #: 930283558  Routing number: 061092387  |  Zelle email: rana_salah@goldenglam.nl")
+    fline("E-mail: sales@goldenglam.nl  |  Instagram: www.instagram/goldenglam.nl  |  www.goldenglam.nl")
+    pgp = ftr.add_paragraph()
+    pgp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    pgp.paragraph_format.space_before = Pt(2)
+    rx = pgp.add_run("Page "); r(rx, 8, color=(120, 120, 120))
+    for tag, txt in [("w:fldChar", None), ("w:instrText", "PAGE"), ("w:fldChar", None)]:
+        el = OxmlElement(tag)
+        if txt:
+            el.set(qn("xml:space"), "preserve"); el.text = txt
+        else:
+            el.set(qn("w:fldCharType"), "begin" if not txt else "end")
+        pgp._p.append(el)
+    end_el = OxmlElement("w:fldChar"); end_el.set(qn("w:fldCharType"), "end")
+    pgp._p.append(end_el)
+
+    # ── Greeting ──────────────────────────────────────────────────────────────
+    p = doc.add_paragraph()
+    p.paragraph_format.space_before = Pt(8)
+    p.paragraph_format.space_after  = Pt(10)
+    rx = p.add_run(f"Dear {client_name.strip()},"); r(rx, 13, True)
+
+    for key in ["intro_para_1", "intro_para_2"]:
+        txt = proposal_data.get(key, "")
+        if txt: para(txt, sb=4, sa=5)
+
+    # ── Boilerplate sections (zero AI tokens) ─────────────────────────────────
+    heading("Design Principles")
+    para("Our approach to styling and designing your home revolves around three core principles:", sb=3, sa=3)
+    bul("Cohesion and unity: ", "Establishing a consistent theme, colour palette, and design style to create harmony throughout your home (from room to room)")
+    bul("Balance: ", "Achieving visual harmony by carefully balancing furniture, colours, patterns, and textures - through (a)symmetrical arrangements, depending on the desired aesthetic")
+    bul("Functionality and practicality: ", "Designing spaces that are intuitive, purposeful, and meet your daily needs while enhancing flow and comfort")
+
+    heading("What We'll Do")
+    num("Optimise and visualise your layout")
+    sub("Conduct site measurements")
+    sub("Develop detailed space plans and furniture placements")
+    sub("Provide 3D furniture layout renderings to optimise space, flow and functionality")
+    sub("Offer expert design insights to help you visualise the transformed space")
+    num("Style and personalise your home")
+    sub("Collaborate through an interactive process to refine styling concepts")
+    sub("Decide on current 'to stay' and new furniture purchases")
+    sub("Create personalised mood board including furniture pieces, colour palettes, materials, and textiles")
+    sub("Select decorative elements such as wallpaper, wall paint, lighting, rugs, and accessories")
+    num("Dress your space")
+    sub("Present furniture options with details on size, style, and pricing")
+    sub("Test functionality with onsite furniture mockups before purchase")
+    sub("Deliver uniquely curated furniture pieces to your doorstep, thoughtfully chosen to reflect your style and personality")
+    sub("Style and arrange furniture onsite ensuring a cohesive and polished look")
+    num("Project management")
+    sub("Guide contractor work, including guidance on sizing, painting (colour palettes), and placement")
+
+    para("As part of styling, we will:", sb=8, sa=3)
+    bul("Firstly, ",  "create a focal point to anchor each space and design around it")
+    bul("Secondly, ", "curate furniture layouts to offer functionality and beauty")
+    bul("Thirdly, ",  "enhance lighting through layering and ambiance")
+    bul("Fourthly, ", "select furniture options, complementary wall treatments, textiles, and window treatments to complement the furniture and mood of each room")
+    bul("Fifthly, ",  "add finishing touches with wall decor, art, plants, and accessories to personalise and bring your vision to life")
+
+    # ── Phase summary table ───────────────────────────────────────────────────
+    phases = proposal_data.get("phases", [])
+    para("We have taken a phased approach to style and furnish your home:", sb=10, sa=5)
+    tbl = doc.add_table(rows=1 + len(phases), cols=3)
+    tbl.style = "Table Grid"
+    tbl.columns[0].width = Inches(0.6)
+    tbl.columns[1].width = Inches(5.5)
+    tbl.columns[2].width = Inches(1.4)
+    hdr_cells = tbl.rows[0].cells
+    for cell, txt in zip(hdr_cells, ["Phase", "Interior Styling Scope", "Design Fee"]):
+        cell.text = txt
+        cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        if cell.paragraphs[0].runs:
+            r(cell.paragraphs[0].runs[0], 10, True, (255,255,255))
+        tc = cell._tc; tcPr = tc.get_or_add_tcPr()
+        shd = OxmlElement("w:shd")
+        shd.set(qn("w:val"),"clear"); shd.set(qn("w:color"),"auto"); shd.set(qn("w:fill"),"1A1A1A")
+        tcPr.append(shd)
+    for i, ph in enumerate(phases):
+        row  = tbl.rows[i+1].cells
+        fill = "F5F5F5" if i % 2 == 0 else "EBEBEB"
+        rooms_txt = ", ".join(rm["label"].lstrip("(abcdefghij) ") for rm in ph.get("rooms",[]))
+        row[0].text = str(ph.get("phase_number", i+1))
+        row[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        row[1].text = f"{ph.get('phase_name','')}  -  {rooms_txt}"
+        row[2].text = ph.get("phase_price","")
+        row[2].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for cell in row:
+            if cell.paragraphs[0].runs:
+                r(cell.paragraphs[0].runs[0], 10)
+            tc = cell._tc; tcPr = tc.get_or_add_tcPr()
+            shd = OxmlElement("w:shd")
+            shd.set(qn("w:val"),"clear"); shd.set(qn("w:color"),"auto"); shd.set(qn("w:fill"), fill)
+            tcPr.append(shd)
+
+    # ── Phase detail pages ────────────────────────────────────────────────────
+    for ph in phases:
+        doc.add_page_break()
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(4)
+        p.paragraph_format.space_after  = Pt(6)
+        rx = p.add_run(f"Phase {ph.get('phase_number','')}: {ph.get('phase_name','')}"); r(rx, 13, True)
+        rx.font.underline = True
+        heading("Scope:")
+        para("This space includes interior styling and decorating of:", sb=2, sa=5)
+        for room in ph.get("rooms", []):
+            p2 = doc.add_paragraph()
+            p2.paragraph_format.space_before = Pt(7)
+            p2.paragraph_format.space_after  = Pt(2)
+            rx2 = p2.add_run(room.get("label","")); r(rx2, 11, True)
+            para(room.get("description",""), sb=2, sa=5)
+        heading("Price:")
+        price_txt = f"The interior styling and advice package for Phase {ph.get('phase_number','')}: {ph.get('phase_name','')} will be {ph.get('phase_price','')}"
+        para(price_txt, sb=2, sa=8)
+
+    # ── Sign-off ──────────────────────────────────────────────────────────────
+    doc.add_paragraph()
+    para("We are truly excited to bring your dream home to life and look forward to collaborating with you on this project.", sb=8, sa=6)
+    para("Rana Salah", bold=True, sb=4, sa=2)
+    para("Co-founder of Golden Glam Interiors LLC", sb=0, sa=4)
+
+    safe = "".join(c if c.isalnum() or c in " _-" else "_" for c in client_name).strip().replace(" ","_")
+    out  = OUTPUT_DIR / f"GoldenGlam_Proposal_{safe}.docx"
+    doc.save(str(out))
+    return out
+
+
+@app.post("/proposal/generate")
+def proposal_generate():
+    payload     = request.get_json(silent=True) or {}
+    client_name = (payload.get("client_name") or "").strip()
+    phases_raw  = payload.get("phases") or []
+    preferences = (payload.get("preferences") or "").strip()
+
+    if not client_name:
+        return jsonify({"ok": False, "error": "Client name is required."}), 400
+    if not phases_raw:
+        return jsonify({"ok": False, "error": "At least one phase is required."}), 400
+
+    # Build a compact phases text for the prompt
+    lines = []
+    for i, ph in enumerate(phases_raw, 1):
+        lines.append(f"Phase {i} - {ph.get('name','')}: {ph.get('price','')}")
+        for rm in ph.get("rooms", []):
+            lines.append(f"  {rm.get('label','')}: {rm.get('notes','')}")
+    phases_text = "\n".join(lines)
+
+    # Build phase_items skeleton for JSON structure guidance
+    phase_items = ", ".join(
+        '{{"phase_number":{i},"phase_name":"{n}","rooms":[{rooms}]}}'.format(
+            i=i+1,
+            n=ph.get("name",""),
+            rooms=", ".join('{{"label":"{l}","description":"..."}}'.format(l=rm.get("label","")) for rm in ph.get("rooms",[]))
+        )
+        for i, ph in enumerate(phases_raw)
+    )
+
+    prompt = _PROPOSAL_USER.format(
+        client_name=client_name,
+        preferences=preferences or "None specified.",
+        phase_items=phase_items,
+        phases_text=phases_text
+    )
+
+    try:
+        raw  = _call_haiku(_PROPOSAL_SYS, prompt)
+        raw  = re.sub(r"^```[a-z]*\n?", "", raw.strip())
+        raw  = re.sub(r"\n?```$", "", raw.strip())
+        data = json.loads(raw)
+        # Inject prices from user input (not from AI)
+        for i, ph in enumerate(data.get("phases", [])):
+            if i < len(phases_raw):
+                ph["phase_price"] = phases_raw[i].get("price", "TBD")
+        docx_path = _build_proposal_docx(client_name, data)
+        return jsonify({"ok": True, "docx_name": docx_path.name, "docx_url": f"/download/{docx_path.name}"})
+    except json.JSONDecodeError as e:
+        return jsonify({"ok": False, "error": f"AI returned invalid JSON: {e}. Raw: {raw[:300]}"}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
