@@ -133,6 +133,8 @@
   <button class="nav-btn" onclick="showTab('pricing',this)">🔍 Competitor Pricing</button>
   <div class="nav-section">Export</div>
   <button class="nav-btn" onclick="showTab('export',this)">📄 Summary & Export</button>
+  <div class="nav-section">Proposals</div>
+  <button class="nav-btn" onclick="showTab('proposal',this)">📝 Proposal Generator</button>
   <div class="nav-section" style="margin-top:auto">Sync</div>
   <button class="nav-btn" onclick="loadServerData()" title="Reload all data from server">🔄 Refresh data</button>
   <div class="sidebar-footer">GoldenGlam_InvoiceGenerator.html<br>Open in any browser • No login needed</div>
@@ -578,6 +580,46 @@
         <code style="font-size:11px;color:var(--mid)">GG__SI&lt;NO&gt;_&lt;CLIENT&gt;_INTERNAL.xlsx</code>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+<!-- PROPOSAL GENERATOR TAB                                                     -->
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+<div id="tab-proposal" class="tab-panel">
+  <div class="page-title">Proposal Generator</div>
+  <div class="page-sub">Generate a professional Golden Glam proposal Word document using AI. Fill in the client details and scope, then click Generate.</div>
+
+  <div class="card" style="max-width:860px">
+    <div class="card-title">Client Details</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <div class="field">
+        <label>Client Name(s) <span style="color:#c0392b">*</span></label>
+        <input id="prop_client_name" placeholder="e.g. Carsten and Shehzin" style="width:100%">
+      </div>
+      <div class="field">
+        <label>Client Preferences & Notes</label>
+        <input id="prop_preferences" placeholder="e.g. Greenguard materials, minimalist, love reading, neutral palette" style="width:100%">
+      </div>
+    </div>
+  </div>
+
+  <!-- Phases -->
+  <div id="prop_phases_container" style="max-width:860px">
+    <!-- Phases injected by JS -->
+  </div>
+
+  <div style="max-width:860px;margin-top:10px;display:flex;gap:10px;align-items:center">
+    <button class="btn" onclick="propAddPhase()" style="background:var(--mid);color:var(--text)">+ Add Phase</button>
+    <button class="btn btn-gold" onclick="propGenerate()" id="prop_generate_btn">✨ Generate Proposal</button>
+    <span id="prop_status" style="font-size:13px;color:var(--mid-text)"></span>
+  </div>
+
+  <div id="prop_result" style="display:none;max-width:860px;margin-top:20px" class="card">
+    <div class="card-title">✅ Proposal Ready</div>
+    <p style="font-size:13px;color:var(--mid-text);margin:0 0 12px">Your Word document has been generated. Click below to download.</p>
+    <a id="prop_download_link" href="#" class="btn btn-gold" download>⬇ Download Word Document</a>
   </div>
 </div>
 
@@ -2380,6 +2422,148 @@ document.getElementById('inv_date').value = new Date().toISOString().slice(0,10)
 refreshClientDropdown();
 addItem();
 loadServerData(); // load all libraries from Supabase on startup
+// ══════════════════════════════════════════════════════════════════════════════
+// PROPOSAL GENERATOR
+// ══════════════════════════════════════════════════════════════════════════════
+
+let propPhases = [];
+
+function propInit() {
+  if (propPhases.length === 0) {
+    propAddPhase();
+  }
+}
+
+function propAddPhase() {
+  const idx = propPhases.length;
+  propPhases.push({ name: '', price: '', rooms: [{ label: '', notes: '' }] });
+  propRender();
+}
+
+function propRemovePhase(idx) {
+  propPhases.splice(idx, 1);
+  propRender();
+}
+
+function propAddRoom(phaseIdx) {
+  propPhases[phaseIdx].rooms.push({ label: '', notes: '' });
+  propRender();
+}
+
+function propRemoveRoom(phaseIdx, roomIdx) {
+  propPhases[phaseIdx].rooms.splice(roomIdx, 1);
+  propRender();
+}
+
+function propSyncField(phaseIdx, field, value) {
+  propPhases[phaseIdx][field] = value;
+}
+
+function propSyncRoom(phaseIdx, roomIdx, field, value) {
+  propPhases[phaseIdx].rooms[roomIdx][field] = value;
+}
+
+function propRender() {
+  const container = document.getElementById('prop_phases_container');
+  container.innerHTML = propPhases.map((ph, pi) => `
+    <div class="card" style="max-width:860px;margin-bottom:12px;border-left:3px solid var(--gold)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div class="card-title" style="margin:0">Phase ${pi + 1}</div>
+        ${propPhases.length > 1 ? `<button onclick="propRemovePhase(${pi})" style="background:none;border:none;color:#c0392b;cursor:pointer;font-size:18px" title="Remove phase">×</button>` : ''}
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr auto;gap:12px;margin-bottom:14px">
+        <div class="field">
+          <label>Phase Name</label>
+          <input placeholder="e.g. Gathering Ground Floor" value="${ph.name}"
+            oninput="propSyncField(${pi},'name',this.value)" style="width:100%">
+        </div>
+        <div class="field">
+          <label>Design Fee</label>
+          <input placeholder="e.g. $2,800" value="${ph.price}"
+            oninput="propSyncField(${pi},'price',this.value)" style="width:120px">
+        </div>
+      </div>
+
+      <div style="font-size:12px;font-weight:600;color:var(--mid-text);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px">Rooms</div>
+
+      ${ph.rooms.map((rm, ri) => `
+        <div style="display:grid;grid-template-columns:180px 1fr auto;gap:8px;align-items:start;margin-bottom:8px">
+          <div class="field" style="margin:0">
+            <input placeholder="e.g. (a) Living room" value="${rm.label}"
+              oninput="propSyncRoom(${pi},${ri},'label',this.value)" style="width:100%;font-size:12px">
+          </div>
+          <div class="field" style="margin:0">
+            <input placeholder="Scope notes, e.g. revamp sofa, new rug, layer lighting, counter stools..." value="${rm.notes}"
+              oninput="propSyncRoom(${pi},${ri},'notes',this.value)" style="width:100%;font-size:12px">
+          </div>
+          ${ph.rooms.length > 1 ? `<button onclick="propRemoveRoom(${pi},${ri})" style="background:none;border:none;color:#c0392b;cursor:pointer;font-size:16px;padding:4px" title="Remove room">×</button>` : '<div></div>'}
+        </div>
+      `).join('')}
+
+      <button onclick="propAddRoom(${pi})" style="background:none;border:1px dashed var(--gold);color:var(--gold);padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px;margin-top:4px">+ Add room</button>
+    </div>
+  `).join('');
+}
+
+async function propGenerate() {
+  const clientName  = document.getElementById('prop_client_name').value.trim();
+  const preferences = document.getElementById('prop_preferences').value.trim();
+  const statusEl    = document.getElementById('prop_status');
+  const resultEl    = document.getElementById('prop_result');
+  const btn         = document.getElementById('prop_generate_btn');
+
+  if (!clientName) { alert('Please enter the client name.'); return; }
+
+  // Validate phases
+  for (let i = 0; i < propPhases.length; i++) {
+    const ph = propPhases[i];
+    if (!ph.name.trim()) { alert(`Please enter a name for Phase ${i + 1}.`); return; }
+    for (let j = 0; j < ph.rooms.length; j++) {
+      if (!ph.rooms[j].label.trim()) { alert(`Phase ${i+1}: please enter a label for room ${j+1}.`); return; }
+    }
+  }
+
+  btn.disabled = true;
+  resultEl.style.display = 'none';
+  statusEl.textContent = '✨ Generating proposal with AI... this may take 20-30 seconds';
+  statusEl.style.color = 'var(--gold)';
+
+  try {
+    const resp = await fetch('/proposal/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_name: clientName, phases: propPhases, preferences })
+    });
+    const data = await resp.json();
+
+    if (data.ok) {
+      statusEl.textContent = '';
+      resultEl.style.display = 'block';
+      const link = document.getElementById('prop_download_link');
+      link.href = data.docx_url;
+      link.download = data.docx_name;
+      link.textContent = `⬇ Download ${data.docx_name}`;
+    } else {
+      statusEl.textContent = '❌ Error: ' + data.error;
+      statusEl.style.color = '#c0392b';
+    }
+  } catch (e) {
+    statusEl.textContent = '❌ Network error: ' + e.message;
+    statusEl.style.color = '#c0392b';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// Init proposal tab when first opened
+const _origShowTab = showTab;
+// Override showTab to init proposal on first visit
+function showTab(id, btn) {
+  _origShowTab(id, btn);
+  if (id === 'proposal') propInit();
+}
+
 </script>
 </body>
 </html>
