@@ -809,7 +809,7 @@ function addItem(pre={}){
       </div>
     </div>
     <div class="grid4">
-      <div class="field"><label>Description</label><input id="i${id}_desc" value="${pre.desc||''}" placeholder="Item name | dimensions" oninput="recalc()"></div>
+      <div class="field"><label>Description</label><textarea id="i${id}_desc" placeholder="Item name | dimensions" oninput="recalc()" rows="2" style="resize:none;font-size:13px">${pre.desc||''}</textarea></div>
       <div class="field">
         <label>Item No. <span style="font-size:10px;font-weight:400;color:var(--mid)">auto-generated</span></label>
         <div style="display:flex;gap:5px;align-items:center">
@@ -1122,7 +1122,7 @@ function recalc(){
       if(cost>0){
         const prof=lt-cost*qty;
         const gmi=lt>0?prof/lt*100:0;
-        const desc=(document.getElementById('i'+id+'_desc')?.value||'Item').substring(0,28);
+        const desc=(document.getElementById('i'+id+'_desc')?.value||'Item').substring(0,50);
         html+=`<div class="profit-row"><span>${desc}</span><span>$${lt.toFixed(0)} → profit $${prof.toFixed(0)} (${gmi.toFixed(1)}%)</span></div>`;
       }
     });
