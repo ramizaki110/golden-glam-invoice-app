@@ -320,7 +320,7 @@
       </div>
       <div class="field"><label>Vendor No. <span class="badge-internal">internal</span></label><input id="ni_vendor_no" placeholder="e.g. UTT-34343"></div>
     </div>
-    <div class="field"><label>Description</label><input id="ni_desc" placeholder="Item name | dimensions"></div>
+    <div class="field"><label>Description</label><textarea id="ni_desc" placeholder="Item name | dimensions" rows="2" style="resize:none;font-size:13px;width:100%;box-sizing:border-box"></textarea></div>
     <div class="field"><label>Est. delivery</label><input id="ni_del" placeholder="e.g. In Stock / Mid March"></div>
     <div class="grid3">
       <div class="field"><label>Unit list price ($)</label><input id="ni_price" type="number" oninput="recalcLibNet('price')"></div>
@@ -1260,7 +1260,7 @@ pay:${payText}|ref:${invNum}|client:${cNo}${notes?'\nnotes:'+notes:''}${installm
 }
 
 async function generateFiles(){
-  buildSummary();
+  await buildSummary();
 
   const summaryEl = document.getElementById('summary-out');
   const summary = (summaryEl.textContent || '').trim();
